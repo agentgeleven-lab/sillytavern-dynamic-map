@@ -1,4 +1,4 @@
-import { DIRECTIONS, ROAD_LENGTH, snapPlan } from '../core/spatial.js';
+import { DIRECTIONS, ROAD_LENGTH, placementPlan } from '../core/spatial.js';
 const NS = 'http://www.w3.org/2000/svg';
 const svgNode = (tag, attrs = {}, text) => {
     const e = document.createElementNS(NS, tag);
@@ -30,7 +30,7 @@ export function renderMap(map, options) {
             g.append(svgNode('line',{x1:a.x,y1:a.y,x2:b.x,y2:b.y}));
             if (!e.bidirectional) {
                 const x=a.x+(b.x-a.x)*.65,y=a.y+(b.y-a.y)*.65,angle=Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI;
-                g.append(svgNode('path',{d:'M -10 -6 L 0 0 L -10 6',transform:`translate(${x} ${y}) rotate(${angle})`,fill:'none',stroke:'#dfcb87','stroke-width':3}));
+                g.append(svgNode('path',{d:'M -10 -6 L 0 0 L -10 6',transform:`translate(${x} ${y}) rotate(${angle})`,fill:'none',stroke:'var(--dm-accent)','stroke-width':3}));
             }
             if (e.name) g.append(svgNode('text',{x:(a.x+b.x)/2+8,y:(a.y+b.y)/2-10},e.name));
             edgeLayer.append(g);
@@ -38,12 +38,12 @@ export function renderMap(map, options) {
     }
     function paintCompass(plan) {
         compass.replaceChildren();
-        if (!plan) return;
+        if (!plan || plan.mode !== 'snap') return;
         const p=points.get(plan.anchorId);
         for (const d of DIRECTIONS) {
             const active=d.id===plan.direction;
-            compass.append(svgNode('line',{x1:p.x,y1:p.y,x2:p.x+d.x*ROAD_LENGTH,y2:p.y+d.y*ROAD_LENGTH,stroke:active?'#f6d985':'#789884','stroke-width':active?3:1,'stroke-dasharray':'3 5'}));
-            compass.append(svgNode('text',{x:p.x+d.x*(ROAD_LENGTH+22),y:p.y+d.y*(ROAD_LENGTH+22)+4,'text-anchor':'middle',fill:active?'#ffe9a2':'#c0d0be','font-size':active?15:11},d.label));
+            compass.append(svgNode('line',{x1:p.x,y1:p.y,x2:p.x+d.x*ROAD_LENGTH,y2:p.y+d.y*ROAD_LENGTH,stroke:active?'var(--dm-accent)':'var(--dm-muted)','stroke-width':active?3:1,'stroke-dasharray':'3 5'}));
+            compass.append(svgNode('text',{x:p.x+d.x*(ROAD_LENGTH+22),y:p.y+d.y*(ROAD_LENGTH+22)+4,'text-anchor':'middle',fill:active?'var(--dm-accent)':'var(--dm-muted)','font-size':active?15:11},d.label));
         }
     }
     for (const n of Object.values(map.nodes)) {
@@ -75,13 +75,17 @@ export function renderMap(map, options) {
         drag.moved=true;
         if(drag.id){
             if(!editable)return;
-            const plan=snapPlan(map,drag.id,world(e));drag.plan=plan;
+            const pointer=world(e),plan=placementPlan(map,drag.id,pointer);drag.plan=plan;
             if(!plan){onHint('此地点没有直接相连的邻居，请先添加路线。');return;}
-            points.set(drag.id,plan.position);
-            groups.get(drag.id).setAttribute('transform',`translate(${plan.position.x} ${plan.position.y})`);
+            points.set(drag.id,pointer);
+            groups.get(drag.id).setAttribute('transform',`translate(${pointer.x} ${pointer.y})`);
             paintEdges(plan.removeIds);paintCompass(plan);
             const names=map.edges.filter(edge=>plan.removeIds.includes(edge.id)).map(edge=>map.nodes[edge.from===drag.id?edge.to:edge.from].name);
-            onHint(`锚点：${map.nodes[plan.anchorId].name} · ${DIRECTIONS.find(d=>d.id===plan.direction).label}${names.length?' · 松手将断开：'+names.join('、'):''}`);
+            if(plan.mode==='snap') {
+                compass.append(svgNode('circle',{cx:plan.position.x,cy:plan.position.y,r:22,fill:'none',stroke:'var(--dm-accent)','stroke-width':2,'stroke-dasharray':'5 4'}));
+                const d=DIRECTIONS.find(d=>d.id===plan.direction).label;
+                onHint(`松手：连接 ${map.nodes[plan.anchorId].name} · ${d}${plan.adjusted?'（原方位被占用，已选择最近空位）':''}${names.length?' · 断开：'+names.join('、'):''}`);
+            } else onHint(plan.mode==='blocked'?plan.reason:`松手：自由放置${names.length?' · 断开：'+names.join('、'):''}`);
         }else viewport.setAttribute('transform',`translate(${camera.x+dx} ${camera.y+dy}) scale(${camera.zoom})`);
     });
     function finish(e){
@@ -103,4 +107,6 @@ export function renderMap(map, options) {
     },{passive:false});
     return svg;
 }
+
+
 
