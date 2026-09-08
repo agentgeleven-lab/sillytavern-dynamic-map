@@ -1,3 +1,4 @@
+import { attachNavigation } from './navigation.js';
 const NS = 'http://www.w3.org/2000/svg';
 function svgElement(tag, attrs = {}, text) {
     const element = document.createElementNS(NS, tag);
@@ -7,21 +8,16 @@ function svgElement(tag, attrs = {}, text) {
 }
 
 /** Presentation-only fallback, not geographic auto-layout. Does not mutate nodes. */
-function positions(nodes) {
+export function positions(nodes) {
     return new Map(nodes.map((node, index) => [node.id, node.position.x === null
         ? { x: 130 + (index % 4) * 170, y: 100 + Math.floor(index / 4) * 130 }
         : node.position]));
 }
 
-export function renderGraph(map, onSelect) {
+export function renderGraph(map, onSelect, navigation) {
     const nodes = Object.values(map.nodes).filter(node => node.discovered);
     const points = positions(nodes);
-    const xs = [...points.values()].map(p => p.x);
-    const ys = [...points.values()].map(p => p.y);
-    const left = (xs.length ? Math.min(...xs) : 0) - 100, top = (ys.length ? Math.min(...ys) : 0) - 85;
-    const width = Math.max(300, (xs.length ? Math.max(...xs) : 300) - left + 100);
-    const height = Math.max(240, (ys.length ? Math.max(...ys) : 200) - top + 85);
-    const svg = svgElement('svg', { viewBox: `${left} ${top} ${width} ${height}`, class: 'dm-svg', role: 'group', 'aria-label': `${map.name}，${nodes.length} 个已发现地点` });
+    const svg = svgElement('svg', { viewBox: '0 0 720 480', class: 'dm-svg', role: 'group', 'aria-label': `${map.name}，${nodes.length} 个已发现地点` });
     const viewport = svgElement('g', { transform: `translate(${map.view.x} ${map.view.y}) scale(${map.view.zoom})`, 'data-layer': 'viewport' });
     const edges = svgElement('g', { 'data-layer': 'edges' });
     for (const edge of map.edges) {
@@ -29,6 +25,11 @@ export function renderGraph(map, onSelect) {
         const a = points.get(edge.from), b = points.get(edge.to);
         const group = svgElement('g', { class: 'dm-edge', 'data-edge-id': edge.id });
         group.append(svgElement('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y }));
+        if (!edge.bidirectional) {
+            const x = a.x + (b.x - a.x) * 0.68, y = a.y + (b.y - a.y) * 0.68;
+            const angle = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
+            group.append(svgElement('path', { d: 'M -10 -6 L 0 0 L -10 6', transform: `translate(${x} ${y}) rotate(${angle})`, fill: 'none', stroke: '#d6c885', 'stroke-width': 3 }));
+        }
         group.append(svgElement('text', { x: (a.x + b.x) / 2 + 16, y: (a.y + b.y) / 2 - 14 }, `${edge.name}${edge.bidirectional ? '' : ' →'}`));
         edges.append(group);
     }
@@ -43,12 +44,13 @@ export function renderGraph(map, onSelect) {
         group.append(svgElement('text', { y: 6, class: 'dm-symbol' }, node.type === 'sect' ? '▲' : node.type === 'city' ? '◆' : '●'));
         group.append(svgElement('text', { y: 60, class: 'dm-name' }, node.name));
         if (current) group.append(svgElement('text', { y: -50, class: 'dm-current-label' }, '当前位置'));
-        group.addEventListener('click', () => onSelect(node));
+        if (!navigation) group.addEventListener('click', () => onSelect(node));
         group.addEventListener('keydown', event => {
             if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(node); }
         });
         locations.append(group);
     }
     viewport.append(edges, locations); svg.append(viewport);
+    if (navigation) svg.dmCleanup = attachNavigation(svg, map, points, { ...navigation, select: onSelect });
     return svg;
 }
