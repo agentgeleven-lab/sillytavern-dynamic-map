@@ -18,9 +18,9 @@ export function renderGraph(map, onSelect) {
     const points = positions(nodes);
     const xs = [...points.values()].map(p => p.x);
     const ys = [...points.values()].map(p => p.y);
-    const left = Math.min(0, ...xs) - 100, top = Math.min(0, ...ys) - 70;
-    const width = Math.max(700, ...xs) - left + 100;
-    const height = Math.max(380, ...ys) - top + 80;
+    const left = (xs.length ? Math.min(...xs) : 0) - 100, top = (ys.length ? Math.min(...ys) : 0) - 85;
+    const width = Math.max(300, (xs.length ? Math.max(...xs) : 300) - left + 100);
+    const height = Math.max(240, (ys.length ? Math.max(...ys) : 200) - top + 85);
     const svg = svgElement('svg', { viewBox: `${left} ${top} ${width} ${height}`, class: 'dm-svg', role: 'group', 'aria-label': `${map.name}，${nodes.length} 个已发现地点` });
     const viewport = svgElement('g', { transform: `translate(${map.view.x} ${map.view.y}) scale(${map.view.zoom})`, 'data-layer': 'viewport' });
     const edges = svgElement('g', { 'data-layer': 'edges' });
