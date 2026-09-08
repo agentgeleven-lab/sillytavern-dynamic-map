@@ -1,3 +1,5 @@
+import { createDraftSession } from './src/core/draft.js';
+import { createApiSettings } from './src/adapters/generation.js';
 import { createPreferences } from './src/ui/preferences.js';
 import { installMessageButtons } from './src/ui/message-buttons.js';
 import { createDemoDocument } from './src/core/demo.js';
@@ -13,6 +15,7 @@ export function initialize() {
     const store = createStore(createDemoDocument());
     const ctx = globalThis.SillyTavern?.getContext?.();
     let panel, status = '';
+    const inlinePanels = new Set();
     const settingsObject = ctx?.extensionSettings;
     if (settingsObject && !settingsObject.dynamicMapNamespace) {
         settingsObject.dynamicMapNamespace = crypto.randomUUID();
@@ -22,11 +25,16 @@ export function initialize() {
         getContext: () => globalThis.SillyTavern?.getContext?.() ?? {},
         storage: { getItem: key => localStorage.getItem(key), setItem: (key, value) => localStorage.setItem(key, value) },
         namespace: settingsObject?.dynamicMapNamespace ?? 'unbound',
-        report(message) { status = message; panel?.setStatus(message); },
+        report(message) { status = message; panel?.setStatus(message); for(const item of inlinePanels)item.setStatus(message); },
     });
     const preferences = createPreferences(() => globalThis.SillyTavern?.getContext?.(), localStorage, settingsObject?.dynamicMapNamespace ?? 'unbound');
-    panel = createPanel(store, persistence, preferences);
-    const messageButtons = installMessageButtons(panel.open, preferences);
+    const shared = {draft:createDraftSession(store,persistence),apiSettings:createApiSettings(localStorage,persistence.namespace)};
+    panel = createPanel(store, persistence, preferences, shared);
+    const messageButtons = installMessageButtons(mount=>{
+        const widget=createPanel(store,persistence,preferences,{...shared,mount,inline:true});
+        inlinePanels.add(widget);widget.setStatus(status);
+        return {destroy(){inlinePanels.delete(widget);widget.destroy();}};
+    }, preferences);
     panel.setStatus(status);
     const onChatChanged = () => { persistence.switchChat(); messageButtons.refresh(); };
     if (ctx?.event_types?.CHAT_CHANGED) ctx.eventSource.on(ctx.event_types.CHAT_CHANGED, onChatChanged);
@@ -39,7 +47,7 @@ export function initialize() {
     const api = createPublicApi(store, panel.open);
     globalThis.SillyTavernDynamicMap = api;
     instance = { api, destroy() {
-        messageButtons.destroy(); panel.destroy(); settings.remove();
+        messageButtons.destroy(); panel.destroy(); shared.draft.destroy(); settings.remove();
         persistence.destroy();
         if (ctx?.event_types?.CHAT_CHANGED) ctx.eventSource.removeListener?.(ctx.event_types.CHAT_CHANGED, onChatChanged);
         if (globalThis.SillyTavernDynamicMap === api) delete globalThis.SillyTavernDynamicMap;
