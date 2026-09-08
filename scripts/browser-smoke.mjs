@@ -6,8 +6,13 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 const {chromium}=await import(process.env.DM_PLAYWRIGHT_PATH?pathToFileURL(process.env.DM_PLAYWRIGHT_PATH).href:'playwright');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const fixtureWorld=`export const selected_world_info=['enabled'];export const world_names=['enabled','disabled'];export const world_info={};export async function loadWorldInfo(name){globalThis.__bookReads??=[];globalThis.__bookReads.push(name);return {entries:{one:{content:name+' 世界背景'}}};}`;
+const customRequests=[];
+const {createDemoDocument}=await import('../src/core/demo.js');
 const server=http.createServer((req,res)=>{
  const pathname=new URL(req.url,'http://localhost').pathname;
+ if(pathname==='/v1/chat/completions'){
+  let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{customRequests.push({body:JSON.parse(body),authorization:req.headers.authorization});const doc=createDemoDocument();doc.maps.world.name='独立 API 测试地图';res.setHeader('Content-Type','application/json');res.end(JSON.stringify({choices:[{message:{content:JSON.stringify(doc)}}]}));});return;
+ }
  if(pathname==='/scripts/world-info.js'){res.setHeader('Content-Type','text/javascript');res.end(fixtureWorld);return;}
  const file=path.resolve(root,'.'+pathname);if(!file.startsWith(root+path.sep)){res.statusCode=403;res.end();return;}
  try{let content=fs.readFileSync(file);if(pathname==='/demo.js')content=content.toString().replace("characters: [{ avatar: 'demo.png' }]","characters: [{ avatar: 'demo.png', data:{name:'测试角色',description:'测试卡片',extensions:{world:'bound'}} }]").replace('async saveMetadata()',`async generateRaw(request){globalThis.__aiRequest=request;const {createDemoDocument}=await import('./src/core/demo.js');const doc=createDemoDocument();doc.maps.world.name='AI 测试地图';return JSON.stringify(doc);},async saveMetadata()`);res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html');res.end(content);}catch{res.statusCode=404;res.end();}
@@ -50,7 +55,24 @@ try{
  await page.getByRole('tab',{name:'AI生成地图',exact:true}).click();await page.getByRole('button',{name:'生成地图草稿',exact:true}).click();await page.getByText('已生成草稿；请检查并保存地图。',{exact:true}).waitFor();
  let request=await page.evaluate(()=>JSON.parse(globalThis.__aiRequest.prompt));assert.equal(request.设定素材.角色卡.名称,'测试角色');assert.deepEqual(request.设定素材.世界书.map(b=>b.名称),['bound']);
  await page.getByRole('checkbox',{name:'同时读取已开启的全局世界书',exact:true}).check();await page.getByRole('button',{name:'生成地图草稿',exact:true}).click();await page.getByText('已生成草稿；请检查并保存地图。',{exact:true}).waitFor();request=await page.evaluate(()=>JSON.parse(globalThis.__aiRequest.prompt));assert.deepEqual(request.设定素材.世界书.map(b=>b.名称),['bound','enabled']);assert.ok(!(await page.evaluate(()=>globalThis.__bookReads)).includes('disabled'));
- assert.deepEqual(errors,[]);console.log('PASS: real pointer drag/free drop, draft/save, compact forms, road catalogs, message controls, themes and AI source scope (mock model).');
+ // Independent API works without the host generation method and keeps keys out of storage.
+ await page.getByRole('tab',{name:'设置',exact:true}).click();
+ await page.getByRole('checkbox',{name:'使用独立 API 生成地图',exact:true}).check();
+ await page.getByRole('textbox',{name:'API 地址',exact:true}).fill(`http://127.0.0.1:${server.address().port}/v1`);
+ await page.getByLabel('API 密钥',{exact:true}).fill('browser-test-only-key');
+ await page.getByRole('textbox',{name:'模型名称',exact:true}).fill('custom-test-model');
+ await page.getByRole('button',{name:'保存 API 设置',exact:true}).click();
+ await page.evaluate(()=>{const original=globalThis.SillyTavern.getContext;globalThis.SillyTavern.getContext=()=>{const ctx=original();delete ctx.generateRaw;return ctx;};});
+ await page.getByRole('tab',{name:'AI生成地图',exact:true}).click();
+ await page.getByRole('button',{name:'生成地图草稿',exact:true}).click();
+ await page.getByRole('heading',{name:'独立 API 测试地图',exact:true}).waitFor();
+ assert.equal(customRequests.length,1);assert.equal(customRequests[0].body.model,'custom-test-model');assert.equal(customRequests[0].authorization,'Bearer browser-test-only-key');
+ const customMaterial=JSON.parse(customRequests[0].body.messages[1].content);assert.deepEqual(customMaterial.设定素材.世界书.map(b=>b.名称),['bound','enabled']);
+ assert.ok(!(await page.evaluate(()=>JSON.stringify({...localStorage}))).includes('browser-test-only-key'));
+ await page.getByRole('tab',{name:'查看地图',exact:true}).click();assert.equal(await page.getByRole('heading',{name:'独立 API 测试地图',exact:true}).count(),0);
+ await page.reload();await page.getByRole('tab',{name:'设置',exact:true}).click();assert.equal(await page.getByLabel('API 密钥',{exact:true}).inputValue(),'');
+ assert.equal(await page.getByRole('textbox',{name:'模型名称',exact:true}).inputValue(),'custom-test-model');
+ assert.deepEqual(errors,[]);console.log('PASS: real pointer drag/free drop, draft/save, compact forms, road catalogs, message controls, themes and AI source scope and custom API (local mock models).');
 }finally{await browser?.close();server.close();}
 
 
