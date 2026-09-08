@@ -44,3 +44,13 @@
 #dynamic-map-panel .dm-feedback:empty { display:none; }
 #dynamic-map-panel .dm-footer { padding:9px 12px; color:#91aa9b; font-size:10px; }
 @media(max-width:480px) { #dynamic-map-panel { width:min(360px,calc(100vw - 16px)); } #dynamic-map-panel .dm-svg { min-height:170px; } }
+#dynamic-map-panel .dm-svg { touch-action:none; user-select:none; cursor:grab; }
+#dynamic-map-panel .dm-editor { margin:8px 12px; border-top:1px solid #405749; padding-top:10px; }
+#dynamic-map-panel .dm-editor summary { cursor:pointer; font-size:13px; color:#d7c995; }
+#dynamic-map-panel .dm-editor h3 { font-size:13px; margin:12px 0 6px; }
+#dynamic-map-panel .dm-editor label { display:block; margin:8px 0; font-size:12px; color:#b7cbbd; }
+#dynamic-map-panel .dm-editor :is(input:not([type=checkbox]),textarea,select) { width:100%; max-width:100%; display:block; padding:7px; margin-top:4px; background:#20372e!important; color:#e5ece7!important; border:1px solid #58705e!important; border-radius:5px; font:inherit; }
+#dynamic-map-panel .dm-editor option { background:#20372e!important; color:#e5ece7!important; }
+#dynamic-map-panel .dm-editor form { border-bottom:1px solid #385242; padding-bottom:10px; }
+#dynamic-map-panel .dm-save-status { padding:5px 12px; margin:0; color:#b4c9b5; font-size:11px; }
+#dynamic-map-panel .dm-backup { padding-top:12px; }

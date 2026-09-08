@@ -3,5 +3,8 @@
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>动态地图 · 独立演示</title><link rel="stylesheet" href="./style.css"></head>
 <body style="background:#142322;color:#e5ece7;font-family:system-ui;padding:24px">
 <h1>动态地图 · 独立演示</h1><p>此页面使用与酒馆插件相同的入口及渲染模块；不代表已经通过酒馆实测。</p>
-<div id="extensions_settings2"></div><script type="module" src="./index.js"></script>
+<label>模拟聊天<select id="demo-chat"><option value="a">聊天 A</option><option value="b">聊天 B</option></select></label>
+<p>此处模拟聊天保存接口，数据只存于本浏览器。可编辑 A，切换 B，再切回 A 或刷新进行检查。</p>
+<label>模拟聊天正文<textarea placeholder="地图展开时仍能在这里输入" style="display:block;width:60%;height:100px"></textarea></label>
+<div id="extensions_settings2"></div><script type="module" src="./demo.js"></script>
 </body></html>
