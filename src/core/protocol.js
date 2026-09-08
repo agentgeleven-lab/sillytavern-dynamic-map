@@ -12,9 +12,10 @@
  * view:ViewState,metadata:Object}} MapData
  * @typedef {{version:1,activeMap:string,maps:Object<string,MapData>}} MapDocument
  */
+import { DIRECTIONS, prepareDocument, validateRules } from './spatial.js';
 export const MAP_TYPES = Object.freeze(['graph', 'hex', 'grid']);
 const forbidden = new Set(['__proto__', 'constructor', 'prototype']);
-const directions = [null, 'north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest', 'up', 'down'];
+const directions = [null, ...DIRECTIONS.map(d => d.id), 'up', 'down'];
 const own = (o, key) => Object.hasOwn(o, key);
 function expect(ok, path, message) {
     if (!ok) throw new TypeError(`${path}: ${message}`);
@@ -107,6 +108,9 @@ export function validateDocument(doc) {
             visited.add(parent); parent = doc.maps[parent].parentMap;
         }
     }
+    for (const map of Object.values(doc.maps)) {
+        if (Object.hasOwn(map.metadata, 'rules') || Object.hasOwn(map.metadata, 'nodeTypes')) validateRules(prepareDocument({ maps: { [map.id]: map } }).maps[map.id]);
+    }
     return doc;
 }
 
@@ -123,3 +127,4 @@ export function createMap(id, name, type = 'graph') {
     return { id, name, type, parentMap: null, nodes: {}, edges: [],
         currentLocation: null, view: { x: 0, y: 0, zoom: 1 }, metadata: {} };
 }
+

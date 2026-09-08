@@ -1,3 +1,4 @@
+import { prepareDocument, layoutMap } from './spatial.js';
 import { createMap, createNode, createEdge } from './protocol.js';
 
 export function createDemoDocument() {
@@ -12,5 +13,8 @@ export function createDemoDocument() {
         createEdge('longmen_baisha', 'longmen_city', 'baisha_town', { name: '官道', direction: 'east' }),
     ];
     map.currentLocation = 'longmen_city';
-    return { version: 1, activeMap: 'world', maps: { world: map } };
+    const doc = prepareDocument({ version: 1, activeMap: 'world', maps: { world: map } });
+    layoutMap(doc.maps.world);
+    return doc;
 }
+
