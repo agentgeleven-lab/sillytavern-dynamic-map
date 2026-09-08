@@ -62,3 +62,11 @@ map.applyUpdate([
 支持 setActiveMap、setCurrentLocation、setView、upsertNode、upsertEdge。mapId 省略时使用该批次执行到此时的 activeMap。整批在副本上运行，最终校验通过后一次提交；任一操作失败，原状态保留且不发送变更事件。允许先添加连接再在同批次补上节点。未知操作报错，不接受任意代码、JSON 路径写入或 eval。
 
 未来模型适配层负责解析结构化参数、检查授权和聊天归属，再调用此入口。这里的校验是数据完整性校验，不是 AI 调用授权系统。同步订阅中禁止反向修改 store，避免循环更新；桥接默认只向外发布。
+
+## v0.3 持久化与编辑补充
+
+协议仍为 version:1。新增 removeNode（级联移除边，必要时清空 currentLocation）和 removeEdge 命令。聊天绑定无效时 applyUpdate 拒绝提交。完整 JSON 导入经校验及用户确认后替换；聊天切换令导入令牌失效。
+
+存储层在 chatMetadata.dynamicMapV1 中保存 `{updatedAt, document}` 信封；导出的正常 JSON 只包含 document，不含窗口位置和保存信封。导出损坏数据用于诊断时可能是原始信封，需修复后提取有效 document 再导入。
+
+视图坐标为 SVG 用户坐标，拖动节点保存 position 并设 layout.fixed=true。方向自动布局尚未实现。store.replace 是存储层内部入口，外部集成继续使用公共 applyUpdate。
