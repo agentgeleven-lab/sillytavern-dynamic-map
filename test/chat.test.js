@@ -60,3 +60,12 @@ test('a successfully synced cache does not resurrect a deleted chat with reused 
     await new Promise(r => setImmediate(r)); delete s.a[STORAGE_KEY]; s.bridge.switchChat();
     assert.equal(s.store.snapshot().maps.world.currentLocation, 'longmen_city');
 });
+
+test('corrupt chat can import a recovery draft without replacing raw data until save', async () => {
+    const { createDraftSession } = await import('../src/core/draft.js');
+    const s = setup();s.a[STORAGE_KEY]={version:99};s.bridge.switchChat();
+    const draft=createDraftSession(s.store,s.bridge);
+    assert.throws(()=>draft.mutate(d=>d.maps.world.name='禁止修改坏档'));
+    draft.replace(createDemoDocument());assert.deepEqual(s.a[STORAGE_KEY],{version:99});
+    draft.save();assert.equal(s.a[STORAGE_KEY].document.version,1);assert.equal(draft.status().dirty,false);
+});
