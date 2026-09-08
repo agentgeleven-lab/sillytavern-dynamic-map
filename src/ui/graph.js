@@ -1,56 +1,106 @@
-import { attachNavigation } from './navigation.js';
+import { DIRECTIONS, ROAD_LENGTH, snapPlan } from '../core/spatial.js';
 const NS = 'http://www.w3.org/2000/svg';
-function svgElement(tag, attrs = {}, text) {
-    const element = document.createElementNS(NS, tag);
-    for (const [key, value] of Object.entries(attrs)) element.setAttribute(key, String(value));
-    if (text !== undefined) element.textContent = text;
-    return element;
+const svgNode = (tag, attrs = {}, text) => {
+    const e = document.createElementNS(NS, tag);
+    for (const [k,v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+    if (text !== undefined) e.textContent = text;
+    return e;
+};
+export function fitCamera(map, editing = false) {
+    const nodes = Object.values(map.nodes).filter(n => editing || n.discovered);
+    if (!nodes.length) return { x: 180, y: 80, zoom: 1 };
+    const xs = nodes.map(n => n.position.x ?? 0), ys = nodes.map(n => n.position.y ?? 0);
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+    const zoom = Math.min(1.65, 610 / (maxX-minX+100), 340 / (maxY-minY+100));
+    return { x: 360-(minX+maxX)/2*zoom, y: 220-(minY+maxY)/2*zoom, zoom };
 }
-
-/** Presentation-only fallback, not geographic auto-layout. Does not mutate nodes. */
-export function positions(nodes) {
-    return new Map(nodes.map((node, index) => [node.id, node.position.x === null
-        ? { x: 130 + (index % 4) * 170, y: 100 + Math.floor(index / 4) * 130 }
-        : node.position]));
-}
-
-export function renderGraph(map, onSelect, navigation) {
-    const nodes = Object.values(map.nodes).filter(node => node.discovered);
-    const points = positions(nodes);
-    const svg = svgElement('svg', { viewBox: '0 0 720 480', class: 'dm-svg', role: 'group', 'aria-label': `${map.name}，${nodes.length} 个已发现地点` });
-    const viewport = svgElement('g', { transform: `translate(${map.view.x} ${map.view.y}) scale(${map.view.zoom})`, 'data-layer': 'viewport' });
-    const edges = svgElement('g', { 'data-layer': 'edges' });
-    for (const edge of map.edges) {
-        if (!edge.discovered || !points.has(edge.from) || !points.has(edge.to)) continue;
-        const a = points.get(edge.from), b = points.get(edge.to);
-        const group = svgElement('g', { class: 'dm-edge', 'data-edge-id': edge.id });
-        group.append(svgElement('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y }));
-        if (!edge.bidirectional) {
-            const x = a.x + (b.x - a.x) * 0.68, y = a.y + (b.y - a.y) * 0.68;
-            const angle = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
-            group.append(svgElement('path', { d: 'M -10 -6 L 0 0 L -10 6', transform: `translate(${x} ${y}) rotate(${angle})`, fill: 'none', stroke: '#d6c885', 'stroke-width': 3 }));
+export function renderMap(map, options) {
+    const { camera, editable = false, onSelect, onCamera, onSnap, onHint = () => {} } = options;
+    const svg = svgNode('svg', { viewBox:'0 0 720 480', class:'dm-svg', role:'group', 'aria-label': `${map.name}，${Object.values(map.nodes).filter(n => options.adjusting || n.discovered).length} 个地点` });
+    const viewport = svgNode('g', { transform:`translate(${camera.x} ${camera.y}) scale(${camera.zoom})` });
+    const edgeLayer = svgNode('g'), nodeLayer = svgNode('g'), compass = svgNode('g', { 'pointer-events':'none', class:'dm-compass' });
+    const points = new Map(Object.values(map.nodes).map(n => [n.id, { x:n.position.x ?? 0, y:n.position.y ?? 0 }]));
+    const groups = new Map();
+    function paintEdges(removed = []) {
+        edgeLayer.replaceChildren();
+        for (const e of map.edges) {
+            if (!options.adjusting && (!e.discovered || !map.nodes[e.from].discovered || !map.nodes[e.to].discovered)) continue;
+            const a=points.get(e.from), b=points.get(e.to), cut=removed.includes(e.id);
+            const g=svgNode('g', {'data-edge-id':e.id,class:`dm-edge${cut?' dm-cut':''}`});
+            g.append(svgNode('line',{x1:a.x,y1:a.y,x2:b.x,y2:b.y}));
+            if (!e.bidirectional) {
+                const x=a.x+(b.x-a.x)*.65,y=a.y+(b.y-a.y)*.65,angle=Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI;
+                g.append(svgNode('path',{d:'M -10 -6 L 0 0 L -10 6',transform:`translate(${x} ${y}) rotate(${angle})`,fill:'none',stroke:'#dfcb87','stroke-width':3}));
+            }
+            if (e.name) g.append(svgNode('text',{x:(a.x+b.x)/2+8,y:(a.y+b.y)/2-10},e.name));
+            edgeLayer.append(g);
         }
-        group.append(svgElement('text', { x: (a.x + b.x) / 2 + 16, y: (a.y + b.y) / 2 - 14 }, `${edge.name}${edge.bidirectional ? '' : ' →'}`));
-        edges.append(group);
     }
-    const locations = svgElement('g', { 'data-layer': 'nodes' });
-    for (const node of nodes) {
-        const point = points.get(node.id), current = map.currentLocation === node.id;
-        const group = svgElement('g', { transform: `translate(${point.x} ${point.y})`, class: `dm-node${current ? ' dm-current' : ''}`, 'data-node-id': node.id,
-            role: 'button', tabindex: 0, 'aria-label': `${node.name}${current ? '，当前位置' : ''}，查看地点详情` });
-        group.append(svgElement('title', {}, node.description));
-        if (current) group.append(svgElement('circle', { r: 38, class: 'dm-halo' }));
-        group.append(svgElement('circle', { r: 25, class: 'dm-dot' }));
-        group.append(svgElement('text', { y: 6, class: 'dm-symbol' }, node.type === 'sect' ? '▲' : node.type === 'city' ? '◆' : '●'));
-        group.append(svgElement('text', { y: 60, class: 'dm-name' }, node.name));
-        if (current) group.append(svgElement('text', { y: -50, class: 'dm-current-label' }, '当前位置'));
-        if (!navigation) group.addEventListener('click', () => onSelect(node));
-        group.addEventListener('keydown', event => {
-            if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(node); }
-        });
-        locations.append(group);
+    function paintCompass(plan) {
+        compass.replaceChildren();
+        if (!plan) return;
+        const p=points.get(plan.anchorId);
+        for (const d of DIRECTIONS) {
+            const active=d.id===plan.direction;
+            compass.append(svgNode('line',{x1:p.x,y1:p.y,x2:p.x+d.x*ROAD_LENGTH,y2:p.y+d.y*ROAD_LENGTH,stroke:active?'#f6d985':'#789884','stroke-width':active?3:1,'stroke-dasharray':'3 5'}));
+            compass.append(svgNode('text',{x:p.x+d.x*(ROAD_LENGTH+22),y:p.y+d.y*(ROAD_LENGTH+22)+4,'text-anchor':'middle',fill:active?'#ffe9a2':'#c0d0be','font-size':active?15:11},d.label));
+        }
     }
-    viewport.append(edges, locations); svg.append(viewport);
-    if (navigation) svg.dmCleanup = attachNavigation(svg, map, points, { ...navigation, select: onSelect });
+    for (const n of Object.values(map.nodes)) {
+        if (!options.adjusting && !n.discovered) continue;
+        const p=points.get(n.id), current=n.id===map.currentLocation;
+        const group=svgNode('g',{transform:`translate(${p.x} ${p.y})`,class:`dm-node${current?' dm-current':''}`,'data-node-id':n.id,role:'button',tabindex:0,'aria-label':`${n.name}${current?'，当前位置':''}，查看地点详情`});
+        if (current) group.append(svgNode('circle',{r:28,class:'dm-halo'}));
+        group.append(svgNode('circle',{r:n.type==='waypoint'?7:19,class:'dm-dot'}));
+        if(n.type!=='waypoint') group.append(svgNode('text',{y:5,class:'dm-symbol'},n.type==='sect'?'▲':n.type==='city'?'◆':'●'));
+        group.append(svgNode('text',{y:45,class:'dm-name'},n.name));
+        if (current) group.append(svgNode('text',{y:-37,class:'dm-current-label'},'当前位置'));
+        group.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onSelect(n.id);}});
+        groups.set(n.id,group);nodeLayer.append(group);
+    }
+    paintEdges(); viewport.append(edgeLayer,compass,nodeLayer);svg.append(viewport);
+    let drag=null;
+    const point=e=>new DOMPoint(e.clientX,e.clientY).matrixTransform(svg.getScreenCTM().inverse());
+    const world=e=>new DOMPoint(e.clientX,e.clientY).matrixTransform(viewport.getScreenCTM().inverse());
+    svg.addEventListener('pointerdown',e=>{
+        if(!e.isPrimary||e.button!==0)return;
+        const id=e.target.closest('[data-node-id]')?.dataset.nodeId;
+        drag={pointer:e.pointerId,id,start:point(e),moved:false,plan:null};
+        svg.setPointerCapture(e.pointerId);
+    });
+    svg.addEventListener('pointermove',e=>{
+        if(drag?.pointer!==e.pointerId)return;
+        const p=point(e),dx=p.x-drag.start.x,dy=p.y-drag.start.y;
+        if(!drag.moved&&Math.hypot(dx,dy)<5)return;
+        drag.moved=true;
+        if(drag.id){
+            if(!editable)return;
+            const plan=snapPlan(map,drag.id,world(e));drag.plan=plan;
+            if(!plan){onHint('此地点没有直接相连的邻居，请先添加路线。');return;}
+            points.set(drag.id,plan.position);
+            groups.get(drag.id).setAttribute('transform',`translate(${plan.position.x} ${plan.position.y})`);
+            paintEdges(plan.removeIds);paintCompass(plan);
+            const names=map.edges.filter(edge=>plan.removeIds.includes(edge.id)).map(edge=>map.nodes[edge.from===drag.id?edge.to:edge.from].name);
+            onHint(`锚点：${map.nodes[plan.anchorId].name} · ${DIRECTIONS.find(d=>d.id===plan.direction).label}${names.length?' · 松手将断开：'+names.join('、'):''}`);
+        }else viewport.setAttribute('transform',`translate(${camera.x+dx} ${camera.y+dy}) scale(${camera.zoom})`);
+    });
+    function finish(e){
+        if(drag?.pointer!==e.pointerId)return;
+        const ended=drag;drag=null;compass.replaceChildren();
+        if(e.type==='pointercancel'){
+            if(ended.id){points.set(ended.id,map.nodes[ended.id].position);const p=points.get(ended.id);groups.get(ended.id).setAttribute('transform',`translate(${p.x} ${p.y})`);paintEdges();}
+            viewport.setAttribute('transform',`translate(${camera.x} ${camera.y}) scale(${camera.zoom})`);onHint('拖动已取消');return;
+        }
+        if(!ended.moved){if(ended.id)onSelect(ended.id);return;}
+        if(ended.id){if(editable&&ended.plan)onSnap(ended.id,ended.plan);}
+        else{const p=point(e);onCamera({...camera,x:camera.x+p.x-ended.start.x,y:camera.y+p.y-ended.start.y});}
+    }
+    svg.addEventListener('pointerup',finish);svg.addEventListener('pointercancel',finish);
+    svg.addEventListener('wheel',e=>{
+        e.preventDefault();if(drag)return;
+        const p=point(e),zoom=Math.max(.1,Math.min(3,camera.zoom*(e.deltaY<0?1.12:1/1.12))),ratio=zoom/camera.zoom;
+        onCamera({zoom,x:p.x-(p.x-camera.x)*ratio,y:p.y-(p.y-camera.y)*ratio});
+    },{passive:false});
     return svg;
 }
+
