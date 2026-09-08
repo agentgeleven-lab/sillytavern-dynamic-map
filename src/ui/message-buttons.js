@@ -1,14 +1,17 @@
 /** UI-only message controls: never insert anything into message text or stored chat. */
-export function installMessageButtons(open, preferences, root=document, surface=globalThis.__TAURITAVERN__?.api?.chatSurface) {
+export function installMessageButtons(createInlinePanel, preferences, root=document, surface=globalThis.__TAURITAVERN__?.api?.chatSurface) {
     const mounted=new Map();let disposed=false,queued=false;
     function mount(element){
         if(disposed||mounted.has(element))return mounted.get(element)?.dispose;
         const host=root.createElement('div');host.className='dm-message-map';
-        const b=root.createElement('button');b.type='button';b.className='dm-message-button';b.textContent='🗺 地图';b.title='打开当前聊天已保存的地图';b.addEventListener('click',open);host.append(b);
+        const b=root.createElement('button');b.type='button';b.className='dm-message-button';b.textContent='🗺 地图';b.title='在这条消息末尾展开地图窗口';b.setAttribute('aria-expanded','false');host.append(b);
         (element.querySelector('.mes_block')??element).append(host);
-        const dispose=()=>{host.remove();mounted.delete(element);};mounted.set(element,{host,dispose});reflect();return dispose;
+        let panel;
+        const close=()=>{if(!panel)return;panel.destroy();panel=null;b.setAttribute('aria-expanded','false');b.textContent='🗺 地图';};
+        b.addEventListener('click',()=>{if(panel)close();else{panel=createInlinePanel(host);b.setAttribute('aria-expanded','true');b.textContent='🗺 关闭地图';}});
+        const dispose=()=>{close();host.remove();mounted.delete(element);};mounted.set(element,{host,dispose,close});reflect();return dispose;
     }
-    function reflect(){const p=preferences.snapshot();for(const {host}of mounted.values()){host.hidden=!p.messageButtons;host.dataset.theme=p.theme;}}
+    function reflect(){const p=preferences.snapshot();for(const {host,close}of mounted.values()){if(!p.messageButtons)close();host.hidden=!p.messageButtons;host.dataset.theme=p.theme;}}
     const managed=surface?.isManagedOwnershipRequired?.()===true;
     let unregister;
     if(managed){unregister=surface.registerParticipant({id:'dynamic-map/message-button',protocolVersion:surface.protocolVersion,didMount:({element})=>mount(element)});}
@@ -19,3 +22,4 @@ export function installMessageButtons(open, preferences, root=document, surface=
     if(!managed)observer.observe(root.querySelector('#chat')??root.body,{childList:true,subtree:true});
     refresh();return {refresh,destroy(){disposed=true;off();observer.disconnect();if(typeof unregister==='function')unregister();else unregister?.dispose?.();for(const item of [...mounted.values()])item.dispose();}};
 }
+
