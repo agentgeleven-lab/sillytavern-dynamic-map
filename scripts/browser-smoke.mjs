@@ -47,9 +47,26 @@ try{
  // Message control mount, dynamic additions, visibility, content isolation and theme persistence.
  await page.evaluate(()=>{const chat=document.createElement('div');chat.id='chat';chat.innerHTML='<div class="mes" mesid="0"><div class="mes_block"><div class="mes_text">原始消息正文</div></div></div>';document.body.append(chat);});
  await page.locator('.dm-message-button').waitFor();assert.equal(await page.locator('.mes_text').innerText(),'原始消息正文');
- await page.getByRole('tab',{name:'设置',exact:true}).click();await page.getByRole('checkbox',{name:'在消息末尾显示小型状态按钮',exact:true}).uncheck();assert.equal(await page.locator('.dm-message-map').isVisible(),false);
+ await page.getByRole('tab',{name:'设置',exact:true}).click();await page.getByRole('checkbox',{name:'在消息末尾显示小型地图按钮',exact:true}).uncheck();assert.equal(await page.locator('.dm-message-map').isVisible(),false);
  await page.getByRole('combobox',{name:'界面主题',exact:true}).selectOption('paper');assert.equal(await page.locator('#dynamic-map-panel').getAttribute('data-theme'),'paper');assert.equal(await page.getByRole('button',{name:'保存地图',exact:true}).count(),0);
- await page.getByRole('checkbox',{name:'在消息末尾显示小型状态按钮',exact:true}).check();await page.getByRole('button',{name:'收起',exact:true}).click();await page.locator('.dm-message-button').click();assert.equal(await page.locator('#dm-content').isVisible(),true);
+ await page.getByRole('checkbox',{name:'在消息末尾显示小型地图按钮',exact:true}).check();await page.getByRole('button',{name:'收起',exact:true}).click();await page.locator('.dm-message-button').click();
+ const inline=page.getByRole('region',{name:'消息末尾地图窗口',exact:true});await inline.waitFor();
+ assert.equal(await page.locator('#dynamic-map-panel .dm-content').isVisible(),false);
+ assert.equal(await inline.evaluate(e=>getComputedStyle(e).position),'relative');assert.equal(await inline.getByRole('tab').count(),6);
+ assert.equal(await inline.evaluate(e=>!!e.closest('#chat .mes[mesid]')),true);
+ await inline.getByRole('tab',{name:'调整地图',exact:true}).click();await inline.getByRole('button',{name:'地点资料',exact:true}).click();
+ await inline.getByRole('combobox',{name:'选择地点',exact:true}).selectOption('longmen_city');await inline.getByRole('textbox',{name:'名称',exact:true}).fill('消息内编辑');
+ await inline.getByRole('button',{name:'应用地点调整',exact:true}).click();
+ assert.equal(await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState().maps.world.nodes.longmen_city.name),'龙门市');
+ await page.locator('.dm-message-button').click();assert.equal(await page.locator('.dm-inline').count(),0);
+ await page.locator('.dm-message-button').click();await inline.getByRole('tab',{name:'调整地图',exact:true}).click();
+ assert.equal(await inline.getByRole('button',{name:'消息内编辑，当前位置，查看地点详情',exact:true}).count(),1);
+ await inline.getByRole('button',{name:'保存地图',exact:true}).click();assert.equal(await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState().maps.world.nodes.longmen_city.name),'消息内编辑');
+ assert.equal(await page.locator('.mes_text').innerText(),'原始消息正文');
+ await inline.getByRole('tab',{name:'设置',exact:true}).click();await inline.getByRole('checkbox',{name:'在消息末尾显示小型地图按钮',exact:true}).click();
+ assert.equal(await page.locator('.dm-inline').count(),0);assert.equal(await page.locator('.dm-message-map').isVisible(),false);
+ await page.locator('#dynamic-map-panel').getByRole('button',{name:'展开',exact:true}).click();
+
  await page.reload();assert.equal(await page.locator('#dynamic-map-panel').getAttribute('data-theme'),'paper');
  // Mock model receives actual source material. No network model call is made.
  await page.getByRole('tab',{name:'AI生成地图',exact:true}).click();await page.getByRole('button',{name:'生成地图草稿',exact:true}).click();await page.getByText('已生成草稿；请检查并保存地图。',{exact:true}).waitFor();
@@ -72,7 +89,8 @@ try{
  await page.getByRole('tab',{name:'查看地图',exact:true}).click();assert.equal(await page.getByRole('heading',{name:'独立 API 测试地图',exact:true}).count(),0);
  await page.reload();await page.getByRole('tab',{name:'设置',exact:true}).click();assert.equal(await page.getByLabel('API 密钥',{exact:true}).inputValue(),'');
  assert.equal(await page.getByRole('textbox',{name:'模型名称',exact:true}).inputValue(),'custom-test-model');
- assert.deepEqual(errors,[]);console.log('PASS: real pointer drag/free drop, draft/save, compact forms, road catalogs, message controls, themes and AI source scope and custom API (local mock models).');
+ assert.deepEqual(errors,[]);console.log('PASS: real pointer drag/free drop, draft/save, compact forms, road catalogs, inline message windows with shared drafts, themes and AI source scope and custom API (local mock models).');
 }finally{await browser?.close();server.close();}
+
 
 
