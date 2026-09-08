@@ -7,14 +7,14 @@ let instance;
 export function initialize() {
     if (instance) return instance;
     const host = document.querySelector('#extensions_settings2') ?? document.querySelector('#extensions_settings');
-    if (!host) { console.warn('[DynamicMap] 找不到扩展设置容器'); return null; }
     const store = createStore(createDemoDocument());
     const panel = createPanel(store);
     const settings = document.createElement('div');
     settings.className = 'dm-settings';
-    settings.innerHTML = '<b>动态地图</b><p>查看沧州示例地图与当前位置。</p><button type="button" class="menu_button">🗺 打开地图</button>';
+    settings.innerHTML = '<b>动态地图</b><p>从悬浮条展开地图，拖动标题调整位置。</p><button type="button" class="menu_button">🗺 打开地图</button><button type="button" class="menu_button dm-reset-window">悬浮窗归位</button>';
     settings.querySelector('button').addEventListener('click', panel.open);
-    host.append(settings);
+    settings.querySelector('.dm-reset-window').addEventListener('click', panel.resetPosition);
+    host?.append(settings);
     const api = createPublicApi(store, panel.open);
     globalThis.SillyTavernDynamicMap = api;
     instance = { api, destroy() {
