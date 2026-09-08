@@ -70,3 +70,13 @@ map.applyUpdate([
 存储层在 chatMetadata.dynamicMapV1 中保存 `{updatedAt, document}` 信封；导出的正常 JSON 只包含 document，不含窗口位置和保存信封。导出损坏数据用于诊断时可能是原始信封，需修复后提取有效 document 再导入。
 
 视图坐标为 SVG 用户坐标，拖动节点保存 position 并设 layout.fixed=true。方向自动布局尚未实现。store.replace 是存储层内部入口，外部集成继续使用公共 applyUpdate。
+
+## v0.4 编辑规则扩展
+
+`map.metadata.rules` 包含 `segmentDistance`（正数）、`unit`（距离单位）、`methods`（非空数组，每项 id/name/speed，speed 为距离单位/小时）。`map.metadata.nodeTypes` 是可编辑的 id/name 类型目录，节点类型必须属于目录。
+
+`edge.direction` 是从 from 到 to 的 16 罗盘方向之一；反向查询使用相反方位。旧的 null/up/down 在草稿准备时按已有坐标迁移到平面方位；旧数据直到保存才写回。
+
+图上每段长度 160，与真实距离无关。`waypoint` 是普通节点的一种类型，显示为小圆点；可连接任意数量的边。插入途经点后用两条边替换一条边，每段继承原路线类型和单向设置，因此真实总距离也变成两倍。
+
+已保存状态与编辑草稿完全分离。相机平移缩放只属于窗口，不触发状态订阅或变量变更。外部 API 更新已保存状态时保留其原有语义，若存在脏草稿则标记冲突。
