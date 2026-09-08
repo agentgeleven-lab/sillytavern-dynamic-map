@@ -7,7 +7,7 @@ let count = 0;
 async function walk(dir) {
     for (const item of await readdir(dir, { withFileTypes: true })) {
         const path = join(dir, item.name);
-        if (item.isDirectory()) { await walk(path); continue; }
+        if (item.isDirectory()) { if (!['node_modules', '.git'].includes(item.name)) await walk(path); continue; }
         if (path.endsWith('.json')) JSON.parse(await readFile(path, 'utf8'));
         if (!/\.(js|mjs)$/.test(path)) continue;
         const result = spawnSync(process.execPath, ['--check', path], { encoding: 'utf8' });
@@ -21,3 +21,4 @@ await walk(root);
 const manifest = JSON.parse(await readFile(join(root, 'manifest.json'), 'utf8'));
 await access(join(root, manifest.js)); await access(join(root, manifest.css));
 console.log(`PASS: ${count} JS modules syntax, relative imports, JSON and manifest entry points`);
+
