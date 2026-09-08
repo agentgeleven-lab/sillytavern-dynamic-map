@@ -15,10 +15,13 @@ export function chatIdentity(ctx) {
 export function bindChatStore(store, { getContext, storage, namespace, report = () => {} }) {
     let binding = null, loading = false, disposed = false, generation = 0;
     const keyFor = id => `dynamic-map.chat.${namespace}.${id}`;
-    function ensureActive() {
+    function ensureBound() {
         if (!binding || chatIdentity(getContext()) !== binding.id || getContext().chatMetadata !== binding.metadata) {
             throw new Error('聊天已切换或尚未打开，请重新打开地图后操作');
         }
+    }
+    function ensureActive() {
+        ensureBound();
         if (binding.invalid) throw new Error('保存的地图格式无效，请先导出原始数据备份，再导入有效地图');
     }
     store.setGuard(ensureActive);
@@ -39,7 +42,7 @@ export function bindChatStore(store, { getContext, storage, namespace, report = 
                 const candidate = cached && !cached.synced && (!saved || cached.updatedAt > saved.updatedAt) ? cached : saved;
                 binding.raw = candidate;
                 if (candidate) document = structuredClone(validateDocument(candidate.document));
-                currentReport(candidate ? '已载入当前聊天地图' : '当前聊天尚无地图；首次编辑后保存');
+                currentReport(candidate ? '已载入当前聊天地图' : '当前为初始地图，点击“保存地图”后保存到聊天');
             } else report('请先打开一个聊天；当前为只读示例');
         } catch (error) {
             if (binding) binding.invalid = true;
@@ -73,7 +76,7 @@ export function bindChatStore(store, { getContext, storage, namespace, report = 
     const unsubscribe = store.subscribe(persist);
     switchChat();
     return {
-        switchChat, ensureActive,
+        switchChat, ensureActive, ensureBound, scope: () => binding?.id ?? null, namespace,
         token: () => generation,
         importDocument(document, token) {
             if (token !== generation) throw new Error('导入期间聊天已切换，请重新选择文件');
@@ -86,3 +89,4 @@ export function bindChatStore(store, { getContext, storage, namespace, report = 
         destroy() { disposed = true; unsubscribe(); store.setGuard(() => { throw new Error('地图已关闭'); }); },
     };
 }
+
