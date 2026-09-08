@@ -1,0 +1,25 @@
+.dm-settings { padding: 14px; margin: 8px 0; border: 1px solid #768b8550; border-radius: 10px; }
+.dm-settings p { opacity: .75; font-size: .9em; }
+#dynamic-map-panel { box-sizing: border-box; width: min(900px, 94vw); max-width: 94vw; max-height: 90dvh; padding: 0; overflow: auto; color: #e5ece7; background: #111e20; border: 1px solid #4a6760; border-radius: 18px; box-shadow: 0 24px 100px #0009; font-family: inherit; text-align: left; }
+#dynamic-map-panel::backdrop { background: #000a; }
+#dynamic-map-panel .dm-header { display: flex; justify-content: space-between; align-items: center; padding: 22px 26px 14px; }
+#dynamic-map-panel .dm-eyebrow { color: #95afa5; font-size: 12px; letter-spacing: 2px; }
+#dynamic-map-panel h2 { margin: 7px 0 0; color: #eef2e8; font-size: 23px; }
+#dynamic-map-panel .dm-close { border: 1px solid #536a64; background: #223532; color: #e5ece7; border-radius: 50%; font-size: 24px; width: 38px; height: 38px; cursor: pointer; }
+#dynamic-map-panel .dm-location { margin: 0 26px; padding: 12px 0; border-top: 1px solid #344c46; color: #c9d9c8; font-size: 14px; }
+#dynamic-map-panel .dm-canvas { margin: 4px 16px; min-height: 200px; border-radius: 12px; background: radial-gradient(ellipse at 45% 45%, #233b35, #152724 70%); }
+#dynamic-map-panel .dm-svg { display: block; width: 100%; height: auto; max-height: 55dvh; min-height: 220px; }
+#dynamic-map-panel .dm-edge line { stroke: #7c9c8c; stroke-width: 2; }
+#dynamic-map-panel .dm-edge text { fill: #adc3b3; font-size: 15px; paint-order: stroke; stroke: #1b302b; stroke-width: 5px; }
+#dynamic-map-panel .dm-node { cursor: pointer; }
+#dynamic-map-panel .dm-dot { fill: #243f36; stroke: #92b39c; stroke-width: 2; }
+#dynamic-map-panel .dm-node:hover .dm-dot, #dynamic-map-panel .dm-node:focus .dm-dot { fill: #416451; stroke: #fff0bc; stroke-width: 3; }
+#dynamic-map-panel .dm-node text { text-anchor: middle; }
+#dynamic-map-panel .dm-symbol { fill: #c3d5b9; font-size: 19px; }
+#dynamic-map-panel .dm-name { fill: #e5eadb; font-size: 22px; }
+#dynamic-map-panel .dm-halo { fill: #eacb6820; stroke: #d5ba69; stroke-width: 1; }
+#dynamic-map-panel .dm-current .dm-dot { fill: #554b2b; stroke: #e6cd80; }
+#dynamic-map-panel .dm-current-label { fill: #ead68d; font-size: 15px; }
+#dynamic-map-panel .dm-details { padding: 18px 26px; min-height: 58px; font-size: 14px; overflow-wrap: anywhere; }
+#dynamic-map-panel .dm-footer { padding: 12px 26px 18px; color: #9aada6; font-size: 12px; }
+@media (max-width: 520px) { #dynamic-map-panel .dm-header { padding: 16px; } #dynamic-map-panel .dm-location { margin: 0 16px; line-height: 1.8; } }

@@ -1,0 +1,34 @@
+import { createDemoDocument } from './src/core/demo.js';
+import { createStore } from './src/core/store.js';
+import { createPanel } from './src/ui/panel.js';
+import { createPublicApi } from './src/integrations/api.js';
+
+let instance;
+export function initialize() {
+    if (instance) return instance;
+    const host = document.querySelector('#extensions_settings2') ?? document.querySelector('#extensions_settings');
+    if (!host) { console.warn('[DynamicMap] 找不到扩展设置容器'); return null; }
+    const store = createStore(createDemoDocument());
+    const panel = createPanel(store);
+    const settings = document.createElement('div');
+    settings.className = 'dm-settings';
+    settings.innerHTML = '<b>动态地图</b><p>查看沧州示例地图与当前位置。</p><button type="button" class="menu_button">🗺 打开地图</button>';
+    settings.querySelector('button').addEventListener('click', panel.open);
+    host.append(settings);
+    const api = createPublicApi(store, panel.open);
+    globalThis.SillyTavernDynamicMap = api;
+    instance = { api, destroy() {
+        panel.destroy(); settings.remove();
+        if (globalThis.SillyTavernDynamicMap === api) delete globalThis.SillyTavernDynamicMap;
+        instance = undefined;
+    } };
+    return instance;
+}
+
+// getContext avoids fragile relative imports into SillyTavern internals.
+const context = globalThis.SillyTavern?.getContext?.();
+if (context?.eventSource && context.event_types?.APP_INITIALIZED) {
+    context.eventSource.on(context.event_types.APP_INITIALIZED, initialize);
+} else if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initialize, { once: true });
+} else initialize();

@@ -1,0 +1,13 @@
+{
+  "display_name": "动态地图 · Dynamic Map",
+  "loading_order": 100,
+  "requires": [],
+  "optional": [],
+  "dependencies": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "Dynamic Map Project",
+  "version": "0.1.0",
+  "homePage": "https://github.com/agentgeleven-lab/sillytavern-dynamic-map",
+  "auto_update": false
+}
