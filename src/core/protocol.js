@@ -109,7 +109,7 @@ export function validateDocument(doc) {
         }
     }
     for (const map of Object.values(doc.maps)) {
-        if (Object.hasOwn(map.metadata, 'rules') || Object.hasOwn(map.metadata, 'nodeTypes')) validateRules(prepareDocument({ maps: { [map.id]: map } }).maps[map.id]);
+        if (Object.hasOwn(map.metadata, 'rules') || Object.hasOwn(map.metadata, 'nodeTypes') || Object.hasOwn(map.metadata, 'roadTypes')) validateRules(prepareDocument({ maps: { [map.id]: map } }).maps[map.id]);
     }
     return doc;
 }
@@ -127,4 +127,5 @@ export function createMap(id, name, type = 'graph') {
     return { id, name, type, parentMap: null, nodes: {}, edges: [],
         currentLocation: null, view: { x: 0, y: 0, zoom: 1 }, metadata: {} };
 }
+
 

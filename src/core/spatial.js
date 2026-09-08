@@ -14,6 +14,7 @@ export function nearestDirection(a, b) {
 }
 export const positionFrom = (a, id) => ({ x: a.x + direction(id).x * ROAD_LENGTH, y: a.y + direction(id).y * ROAD_LENGTH });
 export function defaultRules() { return { segmentDistance: 1, unit: '公里', methods: [{ id: 'walk', name: '走路', speed: 5 }] }; }
+export function defaultRoadTypes() { return [{id:'road',name:'道路'},{id:'path',name:'山路'},{id:'trail',name:'小径'},{id:'water',name:'水路'},{id:'portal',name:'传送通道'}]; }
 export function defaultTypes() { return [
     { id: 'city', name: '城市' }, { id: 'town', name: '城镇' }, { id: 'sect', name: '宗门' },
     { id: 'village', name: '村庄' }, { id: 'port', name: '港口' }, { id: 'mountain', name: '山地' },
@@ -24,6 +25,8 @@ export function prepareDocument(document) {
     for (const map of Object.values(next.maps)) {
         map.metadata.rules ??= defaultRules();
         map.metadata.nodeTypes ??= defaultTypes();
+        map.metadata.roadTypes ??= defaultRoadTypes();
+        for (const edge of map.edges) if (!map.metadata.roadTypes.some(t => t.id === edge.type)) map.metadata.roadTypes.push({id:edge.type,name:edge.type});
         for (const node of Object.values(map.nodes)) {
             if (!map.metadata.nodeTypes.some(type => type.id === node.type)) map.metadata.nodeTypes.push({ id: node.type, name: node.type });
         }
@@ -51,6 +54,13 @@ export function validateRules(map) {
         if (!t || typeof t.id !== 'string' || !t.id || types.has(t.id) || typeof t.name !== 'string' || !t.name.trim()) throw new Error('地点类型名称不能为空，ID 不能重复');
         types.add(t.id);
     }
+    const roads = new Set();
+    if (!Array.isArray(map.metadata.roadTypes) || !map.metadata.roadTypes.length) throw new Error('至少保留一个道路类型');
+    for (const t of map.metadata.roadTypes) {
+        if (!t || typeof t.id !== 'string' || !t.id || roads.has(t.id) || typeof t.name !== 'string' || !t.name.trim()) throw new Error('道路类型名称不能为空，ID 不能重复');
+        roads.add(t.id);
+    }
+    for (const e of map.edges) if (!roads.has(e.type)) throw new Error('道路使用了已删除的类型');
     for (const n of Object.values(map.nodes)) if (!types.has(n.type)) throw new Error(`地点「${n.name}」使用了已删除的类型`);
 }
 /** All roads have equal diagram length. Inconsistent cycles are rejected, never silently distorted. */
@@ -116,4 +126,40 @@ export function connectionDetails(map, nodeId, methodId) {
             minutes: r.segmentDistance / method.speed * 60,
             accessible: e.bidirectional || e.from === nodeId }));
 }
+
+export const SNAP_RADIUS = ROAD_LENGTH * 1.4;
+/** Any nearby node may be an anchor; far-away drops detach the node. */
+export function placementPlan(map, nodeId, pointer) {
+    if(!Number.isFinite(pointer.x)||!Number.isFinite(pointer.y))throw new Error('拖动坐标无效');
+    const incident=map.edges.filter(e=>e.from===nodeId||e.to===nodeId);
+    const candidates=Object.values(map.nodes).filter(n=>n.id!==nodeId&&n.position.x!==null)
+        .map(n=>({node:n,distance:Math.hypot(n.position.x-pointer.x,n.position.y-pointer.y)})).filter(x=>x.distance<=SNAP_RADIUS).sort((a,b)=>a.distance-b.distance);
+    const nearest=candidates[0]?.node;
+    if(!nearest)return {mode:'free',position:{x:pointer.x,y:pointer.y},removeIds:incident.map(e=>e.id)};
+    const existing=incident.find(e=>e.from===nearest.id||e.to===nearest.id);
+    const requested=nearestDirection(nearest.position,pointer);
+    const directions=[...DIRECTIONS].sort((a,b)=>{
+        const distance=d=>{const p=positionFrom(nearest.position,d.id);return Math.hypot(p.x-pointer.x,p.y-pointer.y);};return distance(a)-distance(b);
+    });
+    for(const d of directions){
+        const plan={mode:'snap',anchorId:nearest.id,direction:d.id,requestedDirection:requested.id,adjusted:d.id!==requested.id,
+            edgeId:existing?.id??null,position:positionFrom(nearest.position,d.id),removeIds:incident.filter(e=>e.id!==existing?.id).map(e=>e.id)};
+        try{applyPlacement(structuredClone(map),nodeId,plan,'preview_edge');return plan;}catch{}
+    }
+    return {mode:'blocked',anchorId:nearest.id,position:{x:pointer.x,y:pointer.y},removeIds:[],reason:'附近地点的 16 方位均不可用，请拖到更远的空白处'};
+}
+export function applyPlacement(map,nodeId,plan,newEdgeId){
+    if(plan.mode==='blocked')throw new Error(plan.reason);
+    const node=map.nodes[nodeId];if(!node)throw new Error('地点不存在');
+    const kept=map.edges.find(e=>e.id===plan.edgeId);
+    map.edges=map.edges.filter(e=>e.from!==nodeId&&e.to!==nodeId);
+    if(plan.mode==='snap'){
+        const type=map.metadata.roadTypes?.[0]?.id??'road';
+        const edge=kept??{id:newEdgeId,from:plan.anchorId,to:nodeId,type,name:'',bidirectional:true,discovered:true,metadata:{}};
+        edge.direction=edge.from===nodeId?opposite(plan.direction).id:plan.direction;map.edges.push(edge);
+        node.position={...plan.position};node.layout.fixed=true;layoutMap(map,plan.anchorId);
+    }else{node.position={...plan.position};node.layout.fixed=true;}
+    return map;
+}
+
 
