@@ -12,9 +12,9 @@
 | position | x/y 同时为 null 表示等待布局；否则同时为有限数值，graph 单位为 SVG 用户坐标 |
 | layout | fixed 布尔值；为 true 时必须有具体坐标 |
 | ai | includeInContext 布尔值、alias 字符串数组；摘要排除未发现及不允许进入上下文的地点 |
-| metadata | 普通 JSON 对象；供扩展使用，不进入摘要。hex/grid 坐标约定尚未定稿 |
+| metadata | 普通 JSON 对象；供扩展使用，不进入摘要。格子坐标约定见下方 |
 
-ID 不随显示名变化；对象键必须与对象 id 一致；连接只引用同一地图内地点。direction 描述从 from 到 to 的布局方向，允许八方位英文值、up/down 或 null。direction 与 bidirectional 独立，前者是布局提示，后者决定可达方向。parentMap 允许嵌套，但不能形成循环。
+ID 不随显示名变化；对象键必须与对象 id 一致；连接只引用同一地图内地点。direction 描述从 from 到 to 的布局方向，允许 16 方位英文值、up/down 或 null。direction 与 bidirectional 独立，前者是布局提示，后者决定可达方向。parentMap 允许嵌套，但不能形成循环。
 
 核心拒绝缺失必填字段、重复连接 ID、悬空引用、无效坐标、保留原型字段和非 JSON 数据。upsert 接收完整对象，不是字段补丁；可用 createNode/createEdge 工厂补全默认值。新增地图可通过核心 store.replace 完整载入经校验的文档，尚未公开为 AI 命令。
 
@@ -94,3 +94,12 @@ AI 素材适配位于 src/adapters/sources.js；使用 selected_world_info 增�
 ## v0.6.1 消息窗口
 
 消息按钮在对应消息下方挂载完整地图面板。使用普通文档流，不定位到屏幕边缘。所有面板共享当前聊天的草稿会话和当前浏览器的 API 会话密钥；关闭面板移除其订阅，插件整体卸载时才销毁共享草稿。生成中的面板关闭后不再应用生成结果。
+
+
+## v0.8.0 格子与层级
+
+所有形态使用 Node.position.x/y 作为 SVG 中心坐标，不增加重复坐标来源。grid 的列行 q/r 对应 x=160q、y=160r；hex 使用尖顶六边形轴坐标，x=160(q+r/2)、y=160√3r/2，边长为 160/√3。q/r 为整数，可为负，绝对值上限 1000000。空坐标在准备文档时分配空格。格子底图根据可见范围绘制，不将空格持久化。道路实际 distance 独立于坐标。
+
+格子移动不改变拓扑，更新路线的 16 方位描述并清除 metadata.directionLocked。layout.pinned 继续禁止拖动；形态转换会吸附坐标，多个固定地点落在同一格时拒绝转换。metadata.layout.mode 为 cells。
+
+Map.parentMap 引用上级地图；可选 Map.metadata.parentNode 引用该上级内入口地点。父级与入口必须存在，层级不能成环。道路端点仍局限同一地图。导航设置 activeMap，不隐式更新任何地图的 currentLocation。AI 整图结果只替换当前 Map 并恢复原 ID/父级/入口；其他地图保留。入口缺失时报错，避免生成删除子地图入口。
