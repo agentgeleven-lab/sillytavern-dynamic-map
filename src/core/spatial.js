@@ -20,12 +20,19 @@ export function defaultTypes() { return [
     { id: 'village', name: '村庄' }, { id: 'port', name: '港口' }, { id: 'mountain', name: '山地' },
     { id: 'dungeon', name: '地下城' }, { id: 'landmark', name: '地标' }, { id: 'waypoint', name: '途经点' },
 ]; }
+export function roadDistance(map, edge) { return edge.distance === undefined ? map.metadata.rules.segmentDistance : edge.distance; }
+export function roadName(map, edge) { return edge.name?.trim() || `${map.nodes[edge.from].name}和${map.nodes[edge.to].name}之间的道路`; }
+export function splitRoad(map, edge, waypointId, newId) {
+    const distance=roadDistance(map,edge), half=distance===null?null:distance/2;
+    return [{...edge,to:waypointId,distance:half},{...edge,id:newId,from:waypointId,distance:half}];
+}
 export function prepareDocument(document) {
     const next = structuredClone(document);
     for (const map of Object.values(next.maps)) {
         map.metadata.rules ??= defaultRules();
         map.metadata.nodeTypes ??= defaultTypes();
         map.metadata.roadTypes ??= defaultRoadTypes();
+        for (const edge of map.edges) if (edge.distance === undefined) edge.distance = map.metadata.rules.segmentDistance;
         for (const edge of map.edges) if (!map.metadata.roadTypes.some(t => t.id === edge.type)) map.metadata.roadTypes.push({id:edge.type,name:edge.type});
         for (const node of Object.values(map.nodes)) {
             if (!map.metadata.nodeTypes.some(type => type.id === node.type)) map.metadata.nodeTypes.push({ id: node.type, name: node.type });
@@ -122,8 +129,8 @@ export function connectionDetails(map, nodeId, methodId) {
         .filter(e => map.nodes[e.from === nodeId ? e.to : e.from].discovered)
         .map(e => ({ edge: e, node: map.nodes[e.from === nodeId ? e.to : e.from],
             direction: e.from === nodeId ? direction(e.direction) : opposite(e.direction),
-            distance: r.segmentDistance, unit: r.unit, method: method.name,
-            minutes: r.segmentDistance / method.speed * 60,
+            distance: roadDistance(map,e), unit: r.unit, method: method.name,
+            minutes: roadDistance(map,e) === null ? null : roadDistance(map,e) / method.speed * 60,
             accessible: e.bidirectional || e.from === nodeId }));
 }
 
@@ -155,7 +162,7 @@ export function applyPlacement(map,nodeId,plan,newEdgeId){
     map.edges=map.edges.filter(e=>e.from!==nodeId&&e.to!==nodeId);
     if(plan.mode==='snap'){
         const type=map.metadata.roadTypes?.[0]?.id??'road';
-        const edge=kept??{id:newEdgeId,from:plan.anchorId,to:nodeId,type,name:'',bidirectional:true,discovered:true,metadata:{}};
+        const edge=kept??{id:newEdgeId,from:plan.anchorId,to:nodeId,type,name:'',distance:null,bidirectional:true,discovered:true,metadata:{}};
         edge.direction=edge.from===nodeId?opposite(plan.direction).id:plan.direction;map.edges.push(edge);
         node.position={...plan.position};node.layout.fixed=true;layoutMap(map,plan.anchorId);
     }else{node.position={...plan.position};node.layout.fixed=true;}

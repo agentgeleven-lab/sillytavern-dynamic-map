@@ -43,12 +43,12 @@ discovered：可展示道路为 true，明确未发现为 false。metadata：普
 同一地点的不同邻居不能占同一方位；从终点检查时应使用相反方位，例如 A→B 为 east，则 B 看 A 为 west。还要避免不同路径最终落到同一个位置。
 
 六、距离、途经点与通行时间
-每条 Edge 是一段：图上长度相同，实际参考距离为 metadata.rules.segmentDistance，单位为 metadata.rules.unit。像素长度不是现实距离。
-A→途经点→B 包含两条 Edge，因此总参考距离是两段，不是保持原来一段距离不变。
-需要表达长路或岔路时可添加途经点，但仅当 nodeTypes 中存在 waypoint 类型。途经点仍必须包含全部 Node 字段；名称可为“某道路途中”，description 明确标注“路线示意途经点”，不得冒充设定中的真实聚落。可以连接分支地点。
-目录没有 waypoint 时不要偷偷新增该类型，改用普通连接并在道路 metadata.note 记录无法准确表达的距离。
-已知实际距离可用若干段表示；不能整除、需要过多途经点或超出节点预算时，在 metadata.note 写出原始距离和“图中距离为近似示意”。未知距离同样注明示意，不虚构精确里程。
-通行方式来自 rules.methods，speed 为当前距离单位/小时；预计小时数 = 段数 × segmentDistance ÷ speed，由插件计算。不要添加未经支持的 edge.distance、duration、speed、methods 等字段，不要声称本版本可逐条道路限制交通工具。
+每条 Edge 必须包含 distance：已知距离填非负数字，不知道时填 null，不得假造距离。单位使用 metadata.rules.unit。每条道路距离可以不同，不再使用 rules.segmentDistance 作为统一距离；该旧字段仅为旧存档兼容而保留。
+地图上线段保持等长，只表示连接，不表示实际距离。不要依据线段长度推断现实距离。
+道路 name 可自行命名；不知道名称时填空字符串，界面自动显示“起点名称和终点名称之间的道路”。
+需要表达长路或岔路时可添加 waypoint 途经点，但仅当目录存在该类型；途经点仍包含全部 Node 字段，并在 description 标明“路线示意途经点”，不得冒充真实聚落。
+拆分道路时各段 distance 之和必须等于原距离，无法确定分配时可以均分并注明估计；未知距离保持 null。不再需要为了增加里程堆叠途经点。
+通行方式来自 rules.methods，speed 为当前距离单位/小时；预计小时数 = 道路 distance ÷ speed，由插件计算。distance 为 null 时不能估算时间。不要添加 duration、speed、methods 等未经支持的道路字段，不要声称可逐条道路限制交通工具。
 
 七、提交前自检
 确认 JSON 完整、所有必填字段齐全、ID 与引用一致、类型来自现有目录、当前位置有明确依据或为 null。

@@ -97,6 +97,7 @@ export function validateDocument(doc) {
             expect(directions.includes(edge.direction), edge.id, '未知方向');
             bool(edge.bidirectional, 'edge.bidirectional'); bool(edge.discovered, 'edge.discovered');
             object(edge.metadata, 'edge.metadata');
+            expect(edge.distance === undefined || edge.distance === null || (Number.isFinite(edge.distance) && edge.distance >= 0), edge.id, '道路距离需为空或非负数值');
         }
         object(map.view, `${mapId}.view`);
         expect(Number.isFinite(map.view.x) && Number.isFinite(map.view.y) && Number.isFinite(map.view.zoom) && map.view.zoom > 0, mapId, '视图坐标需有限且缩放必须大于 0');
@@ -121,7 +122,7 @@ export function createNode(id, name, options = {}) {
 }
 export function createEdge(id, from, to, options = {}) {
     return { id, from, to, type: 'road', name: '', direction: null,
-        bidirectional: true, discovered: true, metadata: {}, ...options };
+        bidirectional: true, discovered: true, distance: null, metadata: {}, ...options };
 }
 export function createMap(id, name, type = 'graph') {
     return { id, name, type, parentMap: null, nodes: {}, edges: [],
