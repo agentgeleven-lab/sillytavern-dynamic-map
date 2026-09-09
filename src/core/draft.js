@@ -5,7 +5,7 @@ import { prepareDocument, validateRules, layoutMap } from './spatial.js';
 export function createDraftSession(committed, persistence) {
     const drafts = new Map(), listeners = new Set();
     let current, key, saving = false;
-    const fingerprint = () => {const document=committed.snapshot();delete document.activeMap;return JSON.stringify(document);};
+    const fingerprint = () => JSON.stringify(committed.snapshot());
     function emit() { for (const fn of listeners) fn(); }
     function sync() {
         key = persistence.scope();
@@ -23,11 +23,13 @@ export function createDraftSession(committed, persistence) {
         if (key !== persistence.scope()) throw new Error('聊天已切换');
         const next = structuredClone(current.document);
         fn(next); validateDocument(next);
-        current.document = next; current.recovery ||= recovery; current.dirty = true; current.revision++; emit();
+        current.undo=null; current.document = next; current.recovery ||= recovery; current.dirty = true; current.revision++; emit();
     }
     return {
         snapshot: () => structuredClone(current.document),
-        status: () => ({ dirty: current.dirty, conflict: current.conflict }),
+        status: () => {const saved=prepareDocument(committed.snapshot()),changedMaps=[...new Set([...Object.keys(saved.maps),...Object.keys(current.document.maps)])].filter(id=>JSON.stringify(saved.maps[id])!==JSON.stringify(current.document.maps[id])).map(id=>current.document.maps[id]?.name??saved.maps[id].name+'（删除）');return {dirty:current.dirty,conflict:current.conflict,changedMaps,canUndo:!!current.undo};},
+        applyGeneration(document){const before=structuredClone(current.document);this.replace(document);current.undo=before;emit();},
+        undoGeneration(){if(!current.undo)throw new Error('没有可撤销的生成；编辑或保存后撤销失效');const before=current.undo;mutate(d=>{for(const k of Object.keys(d))delete d[k];Object.assign(d,before);});},
         token: () => `${persistence.token()}:${current.revision}`,
         mutate,
         replace(document) { const next = prepareDocument(validateDocument(document)); for (const map of Object.values(next.maps)) validateRules(map); mutate(d => { for (const k of Object.keys(d)) delete d[k]; Object.assign(d, next); }, true); },
