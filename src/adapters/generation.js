@@ -1,3 +1,4 @@
+import { waitForSignal } from '../core/generation-job.js';
 const defaults={enabled:false,baseUrl:'',model:'',maxTokens:4096,timeoutSeconds:120,rememberKey:false,apiKey:''};
 export function endpointFor(baseUrl){
  let url;try{url=new URL(baseUrl.trim());}catch{throw new Error('请输入完整的 API 地址，例如 https://api.example.com/v1');}
@@ -22,7 +23,7 @@ export function createApiSettings(storage,namespace){
   storage.setItem(key,JSON.stringify(publicFields));value=next;return {...value};
  }};
 }
-export async function generateMapText(ctx,config,request,{fetchImpl=globalThis.fetch,signal}={}){
+async function generateMapTextInternal(ctx,config,request,{fetchImpl=globalThis.fetch,signal}={}){
  const c=validateApiSettings(config);
  if(!c.enabled){if(typeof ctx?.generateRaw!=='function')throw new Error('请配置酒馆模型，或在设置中启用独立 API');return ctx.generateRaw(request);}
  const controller=new AbortController(),abort=()=>controller.abort();
@@ -42,4 +43,13 @@ export async function generateMapText(ctx,config,request,{fetchImpl=globalThis.f
   if(controller.signal.aborted)throw new Error(signal?.aborted?'已取消生成，未应用结果':'独立 API 请求超时，请稍后重试或增加超时时间');
   if(error instanceof TypeError)throw new Error('无法连接独立 API，请检查网络、地址以及服务是否允许浏览器跨域请求');throw error;
  }finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);}
+}
+
+export async function generateMapText(ctx,config,request,options={}){
+ const c=validateApiSettings(config),controller=new AbortController();
+ const abort=()=>controller.abort(options.signal.reason);
+ if(options.signal?.aborted)abort();options.signal?.addEventListener('abort',abort,{once:true});
+ const timer=setTimeout(()=>controller.abort(new Error('模型等待超时，已停止等待；地图未修改')),c.timeoutSeconds*1000);
+ try{return await waitForSignal(()=>generateMapTextInternal(ctx,c,request,{...options,signal:controller.signal}),controller.signal);}
+ finally{clearTimeout(timer);options.signal?.removeEventListener('abort',abort);}
 }
