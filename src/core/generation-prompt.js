@@ -55,6 +55,6 @@ discovered：可展示道路为 true，明确未发现为 false。metadata：普
 确认 from→to 方位正确、道路不重复、没有自连接，途经点拆分后的段数与说明一致。
 确认未改变地图规则和类型目录，没有固定坐标，没有把示例地点复制为真实地图。`;
 
-export function buildMapGenerationPrompt(document, {nameRoads=false} = {}) {
-    return `${MAP_GENERATION_RULES}\n\n本次道路命名：${nameRoads ? '已开启。请为道路生成简短且符合世界设定的名称，优先使用素材已有名称；自行创作的名称在 metadata.note 标注推定。' : '未开启。所有道路的 name 必须为 ""，不要生成道路名称。'}\n\n允许的方位（英文标识 = 中文含义）：\n${DIRECTIONS.map(d => `${d.id} = ${d.label}`).join('\n')}\n\n完整结构示例（名称和内容仅作结构演示；规则和类型目录是本次实际配置，必须保留）：\n${JSON.stringify(generationExample(document))}`;
+export function buildMapGenerationPrompt(document, {nameRoads=false,distanceRoads=false} = {}) {
+    return `${MAP_GENERATION_RULES}\n\n本次道路命名：${nameRoads ? '已开启。请为道路生成简短且符合世界设定的名称，优先使用素材已有名称；自行创作的名称在 metadata.note 标注推定。' : '未开启。所有道路的 name 必须为 ""，不要生成道路名称。'}\n\n本次道路距离：${distanceRoads ? '已开启。请根据设定或聊天中的距离填写 distance；合理估计须在 metadata.note 标明估计依据。无法判断时仍填 null，不为凑数编造精确距离。' : '未开启。所有新生成道路的 distance 必须为 null，不生成距离。'}\n\n允许的方位（英文标识 = 中文含义）：\n${DIRECTIONS.map(d => `${d.id} = ${d.label}`).join('\n')}\n\n完整结构示例（名称和内容仅作结构演示；规则和类型目录是本次实际配置，必须保留）：\n${JSON.stringify(generationExample(document))}`;
 }
