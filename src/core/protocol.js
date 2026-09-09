@@ -79,6 +79,7 @@ export function validateDocument(doc) {
             expect((x === null && y === null) || (Number.isFinite(x) && Number.isFinite(y)), nodeId, '坐标需同时为 null 或有限数值');
             object(node.layout, `${nodeId}.layout`); bool(node.layout.fixed, `${nodeId}.layout.fixed`);
             expect(!node.layout.fixed || x !== null, nodeId, '固定地点需要坐标');
+            if(node.layout.pinned!==undefined){bool(node.layout.pinned,'layout.pinned');expect(!node.layout.pinned||x!==null,nodeId,'固定地点需要坐标');}
             object(node.ai, `${nodeId}.ai`); bool(node.ai.includeInContext, `${nodeId}.ai.includeInContext`);
             expect(Array.isArray(node.ai.alias) && node.ai.alias.every(a => typeof a === 'string'), nodeId, 'alias 需要字符串数组');
             object(node.metadata, `${nodeId}.metadata`);
@@ -97,6 +98,7 @@ export function validateDocument(doc) {
             expect(directions.includes(edge.direction), edge.id, '未知方向');
             bool(edge.bidirectional, 'edge.bidirectional'); bool(edge.discovered, 'edge.discovered');
             object(edge.metadata, 'edge.metadata');
+            if(edge.metadata.directionLocked!==undefined)bool(edge.metadata.directionLocked,'edge.metadata.directionLocked');
             expect(edge.distance === undefined || edge.distance === null || (Number.isFinite(edge.distance) && edge.distance >= 0), edge.id, '道路距离需为空或非负数值');
         }
         object(map.view, `${mapId}.view`);

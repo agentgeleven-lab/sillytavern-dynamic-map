@@ -1,5 +1,5 @@
 import { validateDocument } from './protocol.js';
-import { layoutMap } from './spatial.js';
+import { autoLayout } from './auto-layout.js';
 
 export function recentMapChat(ctx) {
     if (!Array.isArray(ctx?.chat)) throw new Error('当前酒馆未提供聊天记录，未开始新增生成');
@@ -30,12 +30,11 @@ export function applyMapExpansion(document, patch, {nameRoads=false,distanceRoad
         map.edges.push({...structuredClone(edge),name:nameRoads?edge.name:'',distance:distanceRoads?(edge.distance??null):null});
     }
     validateDocument(next);
-    // Validate geometry on a copy: existing coordinates and other data stay untouched.
-    const laid=layoutMap(structuredClone(map));
-    for(const id of Object.keys(document.maps[document.activeMap].nodes)) {
-        const old=map.nodes[id].position,p=laid.nodes[id].position;
-        if(old.x!==null && Math.hypot(old.x-p.x,old.y-p.y)>.01)throw new Error('新增道路会移动已有地点，请调整新增方位后重试');
-    }
+    const old=document.maps[document.activeMap];
+    // Existing nodes are anchors; only the new geometry may change.
+    const laid=structuredClone(map);autoLayout(laid,{pinnedIds:Object.keys(old.nodes).filter(id=>old.nodes[id].position.x!==null)});
     for(const id of Object.keys(patch.nodes))map.nodes[id]=laid.nodes[id];
+    for(const e of map.edges)if(!old.edges.some(previous=>previous.id===e.id))e.direction=laid.edges.find(x=>x.id===e.id).direction;
+    map.metadata.layout={...map.metadata.layout,mode:'auto'};
     return next;
 }

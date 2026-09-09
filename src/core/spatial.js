@@ -1,3 +1,4 @@
+import { validateAutoPositions } from './auto-layout.js';
 export const DIRECTIONS = Object.freeze([
     ['north', '北'], ['north-northeast', '北东北'], ['northeast', '东北'], ['east-northeast', '东东北'],
     ['east', '东'], ['east-southeast', '东东南'], ['southeast', '东南'], ['south-southeast', '南东南'],
@@ -72,6 +73,7 @@ export function validateRules(map) {
 }
 /** All roads have equal diagram length. Inconsistent cycles are rejected, never silently distorted. */
 export function layoutMap(map, anchorId) {
+    if(map.metadata.layout?.mode==='auto')return validateAutoPositions(map);
     const placed = new Map(); let component = 0;
     const adjacency = new Map(Object.keys(map.nodes).map(id => [id, []]));
     for (const e of map.edges) {
@@ -138,6 +140,7 @@ export const SNAP_RADIUS = ROAD_LENGTH * 1.4;
 /** Any nearby node may be an anchor; far-away drops detach the node. */
 export function placementPlan(map, nodeId, pointer) {
     if(!Number.isFinite(pointer.x)||!Number.isFinite(pointer.y))throw new Error('拖动坐标无效');
+    if(map.nodes[nodeId]?.layout.pinned)return {mode:'blocked',position:{x:pointer.x,y:pointer.y},removeIds:[],reason:'此地点已固定，请先在地点资料中取消固定位置'};
     const incident=map.edges.filter(e=>e.from===nodeId||e.to===nodeId);
     const candidates=Object.values(map.nodes).filter(n=>n.id!==nodeId&&n.position.x!==null)
         .map(n=>({node:n,distance:Math.hypot(n.position.x-pointer.x,n.position.y-pointer.y)})).filter(x=>x.distance<=SNAP_RADIUS).sort((a,b)=>a.distance-b.distance);
@@ -157,7 +160,7 @@ export function placementPlan(map, nodeId, pointer) {
 }
 export function applyPlacement(map,nodeId,plan,newEdgeId){
     if(plan.mode==='blocked')throw new Error(plan.reason);
-    const node=map.nodes[nodeId];if(!node)throw new Error('地点不存在');
+    const node=map.nodes[nodeId];if(!node)throw new Error('地点不存在');if(node.layout.pinned)throw new Error('此地点已固定，请先取消固定位置');
     const kept=map.edges.find(e=>e.id===plan.edgeId);
     map.edges=map.edges.filter(e=>e.from!==nodeId&&e.to!==nodeId);
     if(plan.mode==='snap'){
