@@ -45,7 +45,7 @@ discovered：可展示道路为 true，明确未发现为 false。metadata：普
 六、距离、途经点与通行时间
 每条 Edge 必须包含 distance：已知距离填非负数字，不知道时填 null，不得假造距离。单位使用 metadata.rules.unit。每条道路距离可以不同，不再使用 rules.segmentDistance 作为统一距离；该旧字段仅为旧存档兼容而保留。
 地图上线段保持等长，只表示连接，不表示实际距离。不要依据线段长度推断现实距离。
-道路 name 可自行命名；不知道名称时填空字符串，界面自动显示“起点名称和终点名称之间的道路”。
+道路 name 遵循本次道路命名选项；空字符串表示不显示道路名称，界面不补默认名称。
 需要表达长路或岔路时可添加 waypoint 途经点，但仅当目录存在该类型；途经点仍包含全部 Node 字段，并在 description 标明“路线示意途经点”，不得冒充真实聚落。
 拆分道路时各段 distance 之和必须等于原距离，无法确定分配时可以均分并注明估计；未知距离保持 null。不再需要为了增加里程堆叠途经点。
 通行方式来自 rules.methods，speed 为当前距离单位/小时；预计小时数 = 道路 distance ÷ speed，由插件计算。distance 为 null 时不能估算时间。不要添加 duration、speed、methods 等未经支持的道路字段，不要声称可逐条道路限制交通工具。
@@ -55,6 +55,6 @@ discovered：可展示道路为 true，明确未发现为 false。metadata：普
 确认 from→to 方位正确、道路不重复、没有自连接，途经点拆分后的段数与说明一致。
 确认未改变地图规则和类型目录，没有固定坐标，没有把示例地点复制为真实地图。`;
 
-export function buildMapGenerationPrompt(document) {
-    return `${MAP_GENERATION_RULES}\n\n允许的方位（英文标识 = 中文含义）：\n${DIRECTIONS.map(d => `${d.id} = ${d.label}`).join('\n')}\n\n完整结构示例（名称和内容仅作结构演示；规则和类型目录是本次实际配置，必须保留）：\n${JSON.stringify(generationExample(document))}`;
+export function buildMapGenerationPrompt(document, {nameRoads=false} = {}) {
+    return `${MAP_GENERATION_RULES}\n\n本次道路命名：${nameRoads ? '已开启。请为道路生成简短且符合世界设定的名称，优先使用素材已有名称；自行创作的名称在 metadata.note 标注推定。' : '未开启。所有道路的 name 必须为 ""，不要生成道路名称。'}\n\n允许的方位（英文标识 = 中文含义）：\n${DIRECTIONS.map(d => `${d.id} = ${d.label}`).join('\n')}\n\n完整结构示例（名称和内容仅作结构演示；规则和类型目录是本次实际配置，必须保留）：\n${JSON.stringify(generationExample(document))}`;
 }

@@ -21,7 +21,7 @@ export function defaultTypes() { return [
     { id: 'dungeon', name: '地下城' }, { id: 'landmark', name: '地标' }, { id: 'waypoint', name: '途经点' },
 ]; }
 export function roadDistance(map, edge) { return edge.distance === undefined ? map.metadata.rules.segmentDistance : edge.distance; }
-export function roadName(map, edge) { return edge.name?.trim() || `${map.nodes[edge.from].name}和${map.nodes[edge.to].name}之间的道路`; }
+export function roadName(map, edge) { return edge.name?.trim() || ''; }
 export function splitRoad(map, edge, waypointId, newId) {
     const distance=roadDistance(map,edge), half=distance===null?null:distance/2;
     return [{...edge,to:waypointId,distance:half},{...edge,id:newId,from:waypointId,distance:half}];
