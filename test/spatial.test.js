@@ -4,7 +4,7 @@ import { createStore } from '../src/core/store.js';
 import { createDemoDocument } from '../src/core/demo.js';
 import { createNode } from '../src/core/protocol.js';
 import { createDraftSession } from '../src/core/draft.js';
-import { DIRECTIONS, ROAD_LENGTH, layoutMap, snapPlan, applySnap, connectionDetails, validateRules } from '../src/core/spatial.js';
+import { DIRECTIONS, ROAD_LENGTH, layoutMap, snapPlan, applySnap, connectionDetails, validateRules, splitRoad, prepareDocument, roadName } from '../src/core/spatial.js';
 function fixture(){
  const store=createStore(createDemoDocument());let generation=0,scope='A';
  const persistence={scope:()=>scope,token:()=>generation,ensureActive(){},importDocument(doc,token){assert.equal(token,generation);generation++;store.replace(doc);}};
@@ -38,9 +38,9 @@ test('drag chooses only a directly connected neighbor and cuts other edges, reta
  applySnap(m,'longmen_city',plan);assert.equal(m.edges.length,1);assert.equal(Object.keys(m.nodes).length,4);assert.deepEqual(m.nodes.baisha_town.position,anchor);assert.equal(m.nodes.longmen_city.position.y,anchor.y+ROAD_LENGTH);
 });
 test('waypoint extends a road into two equal segments and supports a branch',()=>{
- const m=createDemoDocument().maps.world,e=m.edges.pop();m.nodes.w=createNode('w','途经点',{type:'waypoint'});m.edges.push({...e,to:'w'},{...e,id:'second',from:'w'});layoutMap(m);
+ const m=createDemoDocument().maps.world,e=m.edges.pop();e.distance=10;m.nodes.w=createNode('w','途经点',{type:'waypoint'});m.edges.push(...splitRoad(m,e,'w','second'));layoutMap(m);
  const a=m.nodes.longmen_city.position,b=m.nodes.baisha_town.position;assert.equal(b.x-a.x,ROAD_LENGTH*2);
- const links=connectionDetails(m,'w','walk');assert.equal(links.length,2);assert.equal(links.reduce((sum,l)=>sum+l.distance,0),2);
+ const links=connectionDetails(m,'w','walk');assert.equal(links.length,2);assert.equal(links.reduce((sum,l)=>sum+l.distance,0),10);
 });
 test('invalid distance/speed and conflicting topology are rejected atomically',()=>{
  const {store,draft}=fixture();assert.throws(()=>draft.mutate(d=>d.maps.world.metadata.rules.segmentDistance=-1));assert.equal(store.snapshot().maps.world.metadata.rules.segmentDistance,1);
@@ -48,7 +48,16 @@ test('invalid distance/speed and conflicting topology are rejected atomically',(
  m.edges[1].direction='north';assert.throws(()=>layoutMap(m),/同一方位/);
 });
 test('travel time uses configured distance and speed, one-way arrivals cannot depart',()=>{
- const m=createDemoDocument().maps.world;m.edges[0].bidirectional=false;m.metadata.rules.segmentDistance=10;
+ const m=createDemoDocument().maps.world;m.edges[0].bidirectional=false;m.edges[0].distance=10;
  const link=connectionDetails(m,'qingyun_sect','walk')[0];assert.equal(link.accessible,false);assert.equal(link.minutes,120);assert.equal(link.direction.id,'south');
 });
 
+
+test('optional road distance preserves legacy values and never changes diagram length',()=>{
+ const doc=createDemoDocument(),m=doc.maps.world,e=m.edges[0];delete e.distance;m.metadata.rules.segmentDistance=7;
+ const migrated=prepareDocument(doc).maps.world;assert.equal(migrated.edges[0].distance,7);
+ const before=structuredClone(migrated.nodes);migrated.edges[0].distance=99;layoutMap(migrated);assert.deepEqual(migrated.nodes,before);
+ migrated.edges[0].distance=null;assert.equal(connectionDetails(migrated,'qingyun_sect','walk')[0].minutes,null);
+ migrated.edges[0].name='';assert.equal(roadName(migrated,migrated.edges[0]),'龙门市和青云宗之间的道路');
+ const {draft}=fixture();assert.throws(()=>draft.mutate(d=>d.maps.world.edges[0].distance=-1));
+});
