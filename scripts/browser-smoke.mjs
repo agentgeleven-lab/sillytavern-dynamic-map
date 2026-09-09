@@ -141,6 +141,39 @@ try{
  const pinned=await page.locator('[data-node-id="longmen_city"]').getAttribute('transform');
  await page.getByRole('button',{name:'自动布局',exact:true}).click();await page.getByRole('button',{name:'自动整理地图',exact:true}).click();assert.equal(await page.locator('[data-node-id="longmen_city"]').getAttribute('transform'),pinned);
  await page.getByRole('button',{name:'保存地图',exact:true}).click();
+ // Cell maps and nested navigation through the actual editor.
+ await page.getByRole('button',{name:'地图类型与层级',exact:true}).click();
+ await page.getByRole('combobox',{name:'地图形态',exact:true}).selectOption('hex');
+ await page.getByRole('button',{name:'应用地图形态',exact:true}).click();
+ assert.ok(await page.locator('.dm-cell-layer polygon').count()>0);
+ assert.equal((await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState())).maps.world.type,'graph');
+ await page.getByRole('button',{name:'保存地图',exact:true}).click();
+ assert.equal((await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState())).maps.world.type,'hex');
+ await page.getByRole('textbox',{name:'新地图名称',exact:true}).fill('龙门城内');
+ await page.getByRole('combobox',{name:'新地图形态',exact:true}).selectOption('grid');
+ await page.getByRole('combobox',{name:'上级入口地点',exact:true}).selectOption('longmen_city');
+ await page.getByRole('button',{name:'创建子地图',exact:true}).click();
+ assert.ok(await page.locator('.dm-cell-layer rect').count()>0);
+ await page.getByRole('button',{name:'地点资料',exact:true}).click();
+ await page.getByRole('textbox',{name:'名称',exact:true}).fill('城门');
+ await page.getByRole('button',{name:'新增地点',exact:true}).click();
+ await page.getByRole('button',{name:'设为当前位置',exact:true}).click();
+ await page.getByRole('button',{name:'保存地图',exact:true}).click();
+ const nested=await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState()),child=nested.maps[nested.activeMap];
+ assert.equal(child.parentMap,'world');assert.equal(child.metadata.parentNode,'longmen_city');assert.equal(child.type,'grid');
+ await page.getByRole('tab',{name:'查看地图',exact:true}).click();
+ await page.getByRole('button',{name:/^返回上级：/}).click();
+ await page.getByRole('button',{name:'进入：龙门城内',exact:true}).click();
+ assert.equal((await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState())).activeMap,child.id);
+ await page.getByRole('tab',{name:'调整地图',exact:true}).click();
+ await page.getByRole('button',{name:'允许拖动地点',exact:true}).click();
+ const cellNode=page.locator('[data-node-id]').first(),box=await cellNode.boundingBox();
+ await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();await page.mouse.move(box.x+box.width/2+140,box.y+box.height/2+100,{steps:8});await page.mouse.up();
+ await page.getByRole('button',{name:'保存地图',exact:true}).click();
+ const moved=await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState());
+ assert.notDeepEqual(moved.maps[child.id].nodes[child.currentLocation].position,child.nodes[child.currentLocation].position);
+ assert.equal(moved.maps[child.id].nodes[child.currentLocation].position.x%160,0);
+ await page.reload();await page.getByRole('heading',{name:'龙门城内',exact:true}).waitFor();assert.ok(await page.locator('.dm-cell-layer rect').count()>0);
  assert.deepEqual(errors,[]);console.log('PASS: real pointer drag/free drop, draft/save, compact forms, road catalogs, inline message windows with shared drafts, themes and AI source scope and custom API (local mock models).');
 }finally{await browser?.close();server.close();}
 
