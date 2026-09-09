@@ -1,3 +1,5 @@
+import { renderCellEditor, renderCellDetails, renderCellRules } from './cells.js';
+import { cellKey } from '../core/cells.js';
 import { applyGeneratedMap } from '../core/map-generation.js';
 import { isTileMap, layoutTiles, applyTilePlacement } from '../core/tiles.js';
 import { autoLayout } from '../core/auto-layout.js';
@@ -22,6 +24,7 @@ const field=(host,name,control)=>{const label=el('label',name);label.append(cont
 const download=(data)=>{const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=el('a');a.href=url;a.download='dynamic-map.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 
 export function createPanel(store,persistence,preferences,options={}){
+    const kit={el,field,input,select,button,uid};let selectedCells=[],brushCells=false;
     const apiSettings=options.apiSettings??createApiSettings(localStorage,persistence.namespace);
     const draft=options.draft??createDraftSession(store,persistence), panel=el('section');let disposed=false,activeJob=null,generationStatus='';panel.id=options.inline?uid('dynamic-map-inline'):'dynamic-map-panel';panel.className='dynamic-map-panel'+(options.inline?' dm-inline':'');panel.setAttribute('aria-label',options.inline?'消息末尾地图窗口':'动态地图悬浮窗');
     panel.innerHTML='<header class="dm-header"><div class="dm-handle" tabindex="0" aria-label="拖动地图窗口，方向键移动"><span>🗺</span><strong class="dm-compact-location"></strong></div><button class="dm-toggle" type="button"></button></header><div class="dm-content"><nav class="dm-tabs" role="tablist" aria-label="地图功能"></nav><div class="dm-page"></div><div class="dm-savebar"></div><p class="dm-save-status" role="status"></p><p class="dm-feedback" role="status"></p></div>';
@@ -46,7 +49,7 @@ export function createPanel(store,persistence,preferences,options={}){
         for(const b of panel.querySelectorAll('[data-tab]'))b.setAttribute('aria-selected',String(b.dataset.tab===tab));
         page.replaceChildren();savebar.replaceChildren();feedback.textContent=notice;
         if(collapsed)return;
-        const key=`${persistence.scope()}:${tab}:${map.id}`;if(key!==cameraKey){camera=null;selected=null;unlocked=false;cameraKey=key;}
+        const key=`${persistence.scope()}:${tab}:${map.id}`;if(key!==cameraKey){camera=null;selected=null;unlocked=false;cameraKey=key;selectedCells=[];brushCells=false;}
         page.append(el('h2',map.name));
         if(map.parentMap)page.append(button('返回上级：'+document.maps[map.parentMap].name,()=>navigateMap(map.parentMap)));
         const children=Object.values(document.maps).filter(m=>m.parentMap===map.id);
@@ -72,14 +75,16 @@ export function createPanel(store,persistence,preferences,options={}){
         const controls=el('div',undefined,'dm-toolbar');
         controls.append(button('拖动后回归',()=>{camera=fitCamera(map,tab==='edit');render();}));
         if(tab==='edit'){const b=button(`${unlocked?'✓ ':''}允许拖动地点`,()=>{unlocked=!unlocked;render();});b.setAttribute('aria-pressed',String(unlocked));b.disabled=!persistence.scope();if(b.disabled)b.title='请先打开角色卡的聊天';controls.append(b);}
+        if(tab==='edit'&&isTileMap(map)&&editorTool==='cells'){const brush=button(`${brushCells?'✓ ':''}刷选格子`,()=>{brushCells=!brushCells;render();});brush.setAttribute('aria-pressed',String(brushCells));controls.append(brush,button('清空格子选择',()=>{selectedCells=[];render();}));}
         page.append(controls);
         const canvas=el('div',undefined,'dm-canvas');page.append(canvas);
         const hint=el('p',notice,'dm-drag-hint');hint.setAttribute('role','status');page.append(hint);
         camera??=fitCamera(map,tab==='edit');
-        canvas.append(renderMap(map,{camera,adjusting:tab==='edit',editable:tab==='edit'&&unlocked,onSelect:id=>{selected=id;render();},onCamera:value=>{camera=value;render();},onSnap:(id,plan)=>edit(m=>{if(isTileMap(m))applyTilePlacement(m,id,plan);else applyPlacement(m,id,plan,uid('edge'));notice='已调整草稿；保存地图后生效';}),onHint:text=>{hint.textContent=text;}}));
+        canvas.append(renderMap(map,{camera,cellEditing:tab==='edit'&&editorTool==='cells',brushCells,selectedCells,onCells:(keys,append)=>{selected=null;selectedCells=append?[...new Set([...selectedCells,...keys])]:keys;render();},adjusting:tab==='edit',editable:tab==='edit'&&unlocked&&editorTool!=='cells',onSelect:id=>{selectedCells=[];selected=id;render();},onCamera:value=>{camera=value;render();},onSnap:(id,plan)=>edit(m=>{if(isTileMap(m))applyTilePlacement(m,id,plan);else applyPlacement(m,id,plan,uid('edge'));notice='已调整草稿；保存地图后生效';}),onHint:text=>{hint.textContent=text;}}));
         page.append(el('p',`${isTileMap(map)?(map.type==='hex'?'六边形格子':'方格') :map.metadata.layout?.mode==='auto'?'自动布局，图上线长不代表距离':'等长方位布局'} · 距离以道路资料为准 · 拖动空白平移 · 滚轮缩放`,'dm-help'));
         if(tab==='edit'){if(map.nodes[selected])page.append(el('p',"已选中："+map.nodes[selected].name,'dm-help'));return;}
         const node=map.nodes[selected],details=el('div',undefined,'dm-details');page.append(details);
+        if(isTileMap(map)&&selectedCells.length){renderCellDetails(details,map,selectedCells[0],kit);return;}
         if(!node||(!node.discovered&&tab==='view')){details.textContent='点击地点或途经点查看说明与相邻路线。';return;}
         details.append(el('h3',node.name),el('p',node.description||'暂无说明'));
         const methods=map.metadata.rules.methods;if(!methods.some(m=>m.id===method))method=methods[0].id;
@@ -92,8 +97,9 @@ export function createPanel(store,persistence,preferences,options={}){
         const bar=el('div',undefined,'dm-actions');for(const [id,name]of items){const b=button(name,()=>{change(id);render();});b.setAttribute('aria-pressed',String(id===current));bar.append(b);}host.append(bar);
     }
     function renderEditor(map){
-        switches(page,[['maps','地图类型与层级'],['move','移动地点'],['layout','自动布局'],['node','地点资料'],['route','路线连接'],['waypoint','途经点'],['delete','删除']],editorTool,id=>editorTool=id);
+        switches(page,[['maps','地图类型与层级'],...(isTileMap(map)?[['cells','编辑格子']]:[]),['move','移动地点'],['layout','自动布局'],['node','地点资料'],['route','路线连接'],['waypoint','途经点'],['delete','删除']],editorTool,id=>editorTool=id);
         const form=el('div',undefined,'dm-form');page.append(form);const node=map.nodes[selected],nodes=Object.values(map.nodes);
+        if(editorTool==='cells'){if(isTileMap(map))renderCellEditor(form,map,selectedCells,edit,kit);else form.append(el('p','请先切换为六边形或方格地图'));return;}
         if(editorTool==='maps'){
             const type=field(form,'地图形态',select(mapTypes,map.type));
             form.append(el('p','转换形态会重新吸附地点，保留道路资料与连接。格子地图按位置显示方位，不锁定道路方位。','dm-help'));
@@ -150,8 +156,9 @@ export function createPanel(store,persistence,preferences,options={}){
         }
     }
     function renderRules(map){
-        switches(page,[['distance','距离'],['travel','通行方式'],['nodeTypes','地点类型'],['roadTypes','道路类型']],rulesTool,id=>rulesTool=id);
+        switches(page,[['distance','距离'],['travel','通行方式'],['nodeTypes','地点类型'],['roadTypes','道路类型'],['areas','格子区域类型'],['terrains','格子地形'],['regions','行政区域']],rulesTool,id=>rulesTool=id);
         const form=el('div',undefined,'dm-form');page.append(form);const rules=map.metadata.rules;
+        if(['areas','terrains','regions'].includes(rulesTool)){renderCellRules(form,map,rulesTool,edit,kit);return;}
         if(rulesTool==='distance'){
             const unit=field(form,'距离单位',input(rules.unit));form.append(el('p','每条道路在路线连接页单独填写距离。修改单位不会换算已有数值；通行速度使用该单位/小时。','dm-help'));
             form.append(button('应用距离规则',()=>edit(m=>{m.metadata.rules.unit=unit.value.trim();validateRules(m);})));return;

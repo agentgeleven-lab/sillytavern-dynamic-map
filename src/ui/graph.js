@@ -1,3 +1,4 @@
+import { cellKey, cellColor } from '../core/cells.js';
 import { isTileMap, cellPoint, pointCell, tilePlacement, CELL_SIZE } from '../core/tiles.js';
 import { roadName } from '../core/spatial.js';
 import { DIRECTIONS, ROAD_LENGTH, placementPlan } from '../core/spatial.js';
@@ -10,10 +11,11 @@ const svgNode = (tag, attrs = {}, text) => {
 };
 export function fitCamera(map, editing = false) {
     const nodes = Object.values(map.nodes).filter(n => editing || n.discovered);
-    if (!nodes.length) return { x: 180, y: 80, zoom: 1 };
+    if (!nodes.length&&(!isTileMap(map)||!Object.keys(map.metadata.cells??{}).length)) return { x: 180, y: 80, zoom: 1 };
+    if(isTileMap(map))for(const key of Object.keys(map.metadata.cells??{})){const [q,r]=key.split(',').map(Number);nodes.push({position:cellPoint(map.type,q,r)});}
     const xs = nodes.map(n => n.position.x ?? 0), ys = nodes.map(n => n.position.y ?? 0);
     const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
-    const zoom = Math.min(1.65, 610 / (maxX-minX+100), 340 / (maxY-minY+100));
+    const zoom = Math.max(.1,Math.min(1.65, 610 / (maxX-minX+100), 340 / (maxY-minY+100)));
     return { x: 360-(minX+maxX)/2*zoom, y: 220-(minY+maxY)/2*zoom, zoom };
 }
 export function renderMap(map, options) {
@@ -22,7 +24,8 @@ export function renderMap(map, options) {
     const viewport = svgNode('g', { transform:`translate(${camera.x} ${camera.y}) scale(${camera.zoom})` });
     const edgeLayer = svgNode('g'), nodeLayer = svgNode('g'), compass = svgNode('g', { 'pointer-events':'none', class:'dm-compass' });
     const points = new Map(Object.values(map.nodes).map(n => [n.id, { x:n.position.x ?? 0, y:n.position.y ?? 0 }]));
-    const groups = new Map();
+    const groups = new Map(),cellShapes=new Map();
+    const highlight=key=>{const shape=cellShapes.get(key);if(shape){shape.setAttribute('stroke','var(--dm-accent)');shape.setAttribute('stroke-opacity','1');shape.setAttribute('stroke-width','4');}};
     function paintEdges(removed = []) {
         edgeLayer.replaceChildren();
         for (const e of map.edges) {
@@ -66,8 +69,12 @@ export function renderMap(map, options) {
         const minQ=Math.min(...corners.map(c=>c.q))-2,maxQ=Math.max(...corners.map(c=>c.q))+2,minR=Math.min(...corners.map(c=>c.r))-2,maxR=Math.max(...corners.map(c=>c.r))+2;
         for(let q=minQ;q<=maxQ;q++)for(let r=minR;r<=maxR;r++){
             const p=cellPoint(map.type,q,r);
-            if(map.type==='grid')lattice.append(svgNode('rect',{x:p.x-80,y:p.y-80,width:160,height:160}));
-            else lattice.append(svgNode('polygon',{points:Array.from({length:6},(_,i)=>{const a=(i*60-30)*Math.PI/180;return `${p.x+CELL_SIZE/Math.sqrt(3)*Math.cos(a)},${p.y+CELL_SIZE/Math.sqrt(3)*Math.sin(a)}`;}).join(' ')}));
+            const key=cellKey({q,r}),data=map.metadata.cells?.[key];
+            const attrs={'data-cell-key':key,fill:cellColor(map,data),'fill-opacity':.48};
+            const shape=map.type==='grid'?svgNode('rect',{...attrs,x:p.x-80,y:p.y-80,width:160,height:160}):svgNode('polygon',{...attrs,points:Array.from({length:6},(_,i)=>{const a=(i*60-30)*Math.PI/180;return `${p.x+CELL_SIZE/Math.sqrt(3)*Math.cos(a)},${p.y+CELL_SIZE/Math.sqrt(3)*Math.sin(a)}`;}).join(' ')});
+            cellShapes.set(key,shape);lattice.append(shape);
+            if(data?.name)lattice.append(svgNode('text',{x:p.x,y:p.y-55,'text-anchor':'middle',fill:'var(--dm-text)',stroke:'none','font-size':14},data.name));
+            if(options.selectedCells?.includes(key))highlight(key);
         }
         viewport.append(lattice);
     }
@@ -79,10 +86,17 @@ export function renderMap(map, options) {
         if(!e.isPrimary||e.button!==0)return;
         const id=e.target.closest('[data-node-id]')?.dataset.nodeId;
         drag={pointer:e.pointerId,id,start:point(e),moved:false,plan:null};
+        if(isTileMap(map)&&options.cellEditing&&options.brushCells){drag.cells=new Set();drag.previous=world(e);addBrush(world(e));}
         svg.setPointerCapture(e.pointerId);
     });
+    function addBrush(pointer){
+        const prev=drag.previous??pointer,steps=Math.min(2000,Math.max(1,Math.ceil(Math.hypot(pointer.x-prev.x,pointer.y-prev.y)/30)));
+        for(let i=0;i<=steps;i++){const key=cellKey(pointCell(map.type,{x:prev.x+(pointer.x-prev.x)*i/steps,y:prev.y+(pointer.y-prev.y)*i/steps}));if(drag.cells.size<10000){drag.cells.add(key);highlight(key);}}
+        drag.previous=pointer;onHint(`本次刷选 ${drag.cells.size} 格；松手后统一设置属性`);
+    }
     svg.addEventListener('pointermove',e=>{
         if(drag?.pointer!==e.pointerId)return;
+        if(drag.cells){addBrush(world(e));return;}
         const p=point(e),dx=p.x-drag.start.x,dy=p.y-drag.start.y;
         if(!drag.moved&&Math.hypot(dx,dy)<5)return;
         drag.moved=true;
@@ -103,12 +117,14 @@ export function renderMap(map, options) {
     });
     function finish(e){
         if(drag?.pointer!==e.pointerId)return;
+        if(drag.cells&&e.type!=='pointercancel')addBrush(world(e));
         const ended=drag;drag=null;compass.replaceChildren();
+        if(ended.cells){options.onCells(e.type==='pointercancel'?[]:[...ended.cells],true);return;}
         if(e.type==='pointercancel'){
             if(ended.id){points.set(ended.id,map.nodes[ended.id].position);const p=points.get(ended.id);groups.get(ended.id).setAttribute('transform',`translate(${p.x} ${p.y})`);paintEdges();}
             viewport.setAttribute('transform',`translate(${camera.x} ${camera.y}) scale(${camera.zoom})`);onHint('拖动已取消');return;
         }
-        if(!ended.moved){if(ended.id)onSelect(ended.id);return;}
+        if(!ended.moved){if(isTileMap(map)&&(options.cellEditing||!ended.id))options.onCells?.([cellKey(pointCell(map.type,world(e)))],false);else if(ended.id)onSelect(ended.id);return;}
         if(ended.id){if(editable&&ended.plan)onSnap(ended.id,ended.plan);}
         else{const p=point(e);onCamera({...camera,x:camera.x+p.x-ended.start.x,y:camera.y+p.y-ended.start.y});}
     }
