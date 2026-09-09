@@ -2,7 +2,7 @@ import { startGenerationJob } from '../core/generation-job.js';
 import { buildMapGenerationPrompt } from '../core/generation-prompt.js';
 import { createDraftSession } from '../core/draft.js';
 import { createNode, createEdge, validateDocument } from '../core/protocol.js';
-import { DIRECTIONS, prepareDocument, layoutMap, validateRules, applyPlacement, connectionDetails } from '../core/spatial.js';
+import { DIRECTIONS, prepareDocument, layoutMap, validateRules, applyPlacement, connectionDetails, roadName, roadDistance, splitRoad } from '../core/spatial.js';
 import { createApiSettings, generateMapText } from '../adapters/generation.js';
 import { readMapSources } from '../adapters/sources.js';
 import { THEMES } from './preferences.js';
@@ -68,7 +68,7 @@ export function createPanel(store,persistence,preferences,options={}){
         const hint=el('p',notice,'dm-drag-hint');hint.setAttribute('role','status');page.append(hint);
         camera??=fitCamera(map,tab==='edit');
         canvas.append(renderMap(map,{camera,adjusting:tab==='edit',editable:tab==='edit'&&unlocked,onSelect:id=>{selected=id;render();},onCamera:value=>{camera=value;render();},onSnap:(id,plan)=>edit(m=>{applyPlacement(m,id,plan,uid('edge'));notice='已调整草稿；保存地图后生效';}),onHint:text=>{hint.textContent=text;}}));
-        page.append(el('p',`每段道路 ${map.metadata.rules.segmentDistance} ${map.metadata.rules.unit} · 拖动空白平移 · 滚轮缩放`,'dm-help'));
+        page.append(el('p',`线段等长，仅示意连接；距离以道路资料为准 · 拖动空白平移 · 滚轮缩放`,'dm-help'));
         if(tab==='edit'){if(map.nodes[selected])page.append(el('p',"已选中："+map.nodes[selected].name,'dm-help'));return;}
         const node=map.nodes[selected],details=el('div',undefined,'dm-details');page.append(details);
         if(!node||(!node.discovered&&tab==='view')){details.textContent='点击地点或途经点查看说明与相邻路线。';return;}
@@ -77,7 +77,7 @@ export function createPanel(store,persistence,preferences,options={}){
         const travel=select(methods,method);field(details,'通行方式',travel);travel.onchange=()=>{method=travel.value;render();};
         const links=connectionDetails(map,node.id,method);
         if(!links.length)details.append(el('p','暂无已发现的相邻路线'));
-        for(const link of links){const line=el('p');line.append(button(link.node.name,()=>{selected=link.node.id;render();}),document.createTextNode(` · ${link.direction.label} · ${link.distance} ${link.unit} · ${link.edge.name||map.metadata.roadTypes.find(t=>t.id===link.edge.type)?.name||link.edge.type} · ${link.edge.bidirectional?'双向':link.accessible?'单向出发':'单向到达，不能沿此路出发'} · ${link.method}约 ${Number(link.minutes.toFixed(1))} 分钟`));details.append(line);}
+        for(const link of links){const line=el('p');line.append(button(link.node.name,()=>{selected=link.node.id;render();}),document.createTextNode(` · ${link.direction.label} · ${link.distance===null?'距离未设置':link.distance+' '+link.unit} · ${roadName(map,link.edge)} · ${map.metadata.roadTypes.find(t=>t.id===link.edge.type)?.name||link.edge.type} · ${link.edge.bidirectional?'双向':link.accessible?'单向出发':'单向到达，不能沿此路出发'} · ${link.minutes===null?'时间无法估算':link.method+'约 '+Number(link.minutes.toFixed(1))+' 分钟'}`));details.append(line);}
     }
     function switches(host,items,current,change){
         const bar=el('div',undefined,'dm-actions');for(const [id,name]of items){const b=button(name,()=>{change(id);render();});b.setAttribute('aria-pressed',String(id===current));bar.append(b);}host.append(bar);
@@ -100,18 +100,21 @@ export function createPanel(store,persistence,preferences,options={}){
             if(nodes.length<2){form.append(el('p','请先新增至少两个地点'));return;}
             const edge=map.edges.find(e=>e.id===routeId);const pick=field(form,'选择路线',select([{id:'',name:'新增路线'},...roads],edge?.id??''));pick.onchange=()=>{routeId=pick.value;render();};
             const from=field(form,'起点',select(nodes,edge?.from??node?.id??nodes[0].id)),to=field(form,'终点',select(nodes,edge?.to??nodes.find(n=>n.id!==from.value)?.id)),dir=field(form,'终点位于起点的',select(DIRECTIONS,edge?.direction??'east')),type=field(form,'道路类型',select(map.metadata.roadTypes,edge?.type??map.metadata.roadTypes[0].id)),single=field(form,'单向通行（起点 → 终点）',input('','checkbox'));single.checked=edge?!edge.bidirectional:false;
+            const roadLabel=field(form,'道路名称（留空自动命名）',input(edge?.name??'')), roadLength=field(form,`道路距离（${map.metadata.rules.unit}，可留空）`,input(edge?roadDistance(map,edge)??'':'','number')); roadLength.min='0'; roadLength.step='any';
+            roadLabel.placeholder=`${map.nodes[from.value].name}和${map.nodes[to.value].name}之间的道路`;
+            from.onchange=to.onchange=()=>{roadLabel.placeholder=`${map.nodes[from.value].name}和${map.nodes[to.value].name}之间的道路`;};
             form.append(button(edge?'应用路线调整':'添加路线',()=>layoutEdit(m=>{
                 if(from.value===to.value)throw new Error('起点与终点不能相同');
                 if(m.edges.some(e=>e.id!==edge?.id&&((e.from===from.value&&e.to===to.value)||(e.to===from.value&&e.from===to.value))))throw new Error('这两个地点已经连接');
-                const id=edge?.id??uid('edge');const next=createEdge(id,from.value,to.value,{...(edge??{}),from:from.value,to:to.value,direction:dir.value,type:type.value,name:map.metadata.roadTypes.find(t=>t.id===type.value).name,bidirectional:!single.checked});
+                const id=edge?.id??uid('edge');const next=createEdge(id,from.value,to.value,{...(edge??{}),from:from.value,to:to.value,direction:dir.value,type:type.value,name:roadLabel.value.trim(),distance:roadLength.value.trim()===''?null:Number(roadLength.value),bidirectional:!single.checked});
                 m.edges=m.edges.filter(e=>e.id!==id);m.edges.push(next);routeId=id;
             })));return;
         }
         if(editorTool==='waypoint'){
             const addWaypoint=m=>{if(!m.metadata.nodeTypes.some(t=>t.id==='waypoint'))m.metadata.nodeTypes.push({id:'waypoint',name:'途经点'});const id=uid('waypoint');m.nodes[id]=createNode(id,'途经点',{type:'waypoint',position:{x:100+Object.keys(m.nodes).length*210,y:480}});selected=id;return id;};
             form.append(button('新增独立途经点',()=>edit(m=>{addWaypoint(m);camera=null;})));
-            if(roads.length){const pick=field(form,'插入到哪条路线',select(roads,roads[0].id));form.append(button('插入途经点',()=>layoutEdit(m=>{const e=m.edges.find(x=>x.id===pick.value),id=addWaypoint(m);m.edges=m.edges.filter(x=>x.id!==e.id);m.edges.push({...e,to:id},{...e,id:uid('edge'),from:id});})));}
-            form.append(el('p','插入途经点会把一段路变成两段，总距离增加。途经点也可以连接其他地点。','dm-help'));return;
+            if(roads.length){const pick=field(form,'插入到哪条路线',select(roads,roads[0].id));form.append(button('插入途经点',()=>layoutEdit(m=>{const e=m.edges.find(x=>x.id===pick.value),id=addWaypoint(m);m.edges=m.edges.filter(x=>x.id!==e.id);m.edges.push(...splitRoad(m,e,id,uid('edge')));})));}
+            form.append(el('p','插入途经点会把道路分成两段，已填距离各分一半、总距离不变；未填距离仍为空。途经点也可以连接其他地点。','dm-help'));return;
         }
         if(editorTool==='delete'){
             if(nodes.length){const pick=field(form,'删除地点',select(nodes,node?.id??nodes[0].id));form.append(button('删除地点及关联路线',()=>edit(m=>{delete m.nodes[pick.value];m.edges=m.edges.filter(e=>e.from!==pick.value&&e.to!==pick.value);if(m.currentLocation===pick.value)m.currentLocation=null;selected=null;})));}
@@ -122,8 +125,8 @@ export function createPanel(store,persistence,preferences,options={}){
         switches(page,[['distance','距离'],['travel','通行方式'],['nodeTypes','地点类型'],['roadTypes','道路类型']],rulesTool,id=>rulesTool=id);
         const form=el('div',undefined,'dm-form');page.append(form);const rules=map.metadata.rules;
         if(rulesTool==='distance'){
-            const distance=field(form,'每段道路距离',input(rules.segmentDistance,'number')),unit=field(form,'距离单位',input(rules.unit));
-            form.append(button('应用距离规则',()=>edit(m=>{m.metadata.rules.segmentDistance=Number(distance.value);m.metadata.rules.unit=unit.value.trim();validateRules(m);})));return;
+            const unit=field(form,'距离单位',input(rules.unit));form.append(el('p','每条道路在路线连接页单独填写距离。修改单位不会换算已有数值；通行速度使用该单位/小时。','dm-help'));
+            form.append(button('应用距离规则',()=>edit(m=>{m.metadata.rules.unit=unit.value.trim();validateRules(m);})));return;
         }
         if(rulesTool==='travel'){
             form.append(el('p','速度单位：距离单位 / 小时。','dm-help'));
