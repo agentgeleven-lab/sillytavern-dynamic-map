@@ -1,3 +1,4 @@
+import { recentMapChat, applyMapExpansion } from '../core/map-expansion.js';
 import { startGenerationJob } from '../core/generation-job.js';
 import { buildMapGenerationPrompt } from '../core/generation-prompt.js';
 import { createDraftSession } from '../core/draft.js';
@@ -22,13 +23,13 @@ export function createPanel(store,persistence,preferences,options={}){
     panel.innerHTML='<header class="dm-header"><div class="dm-handle" tabindex="0" aria-label="拖动地图窗口，方向键移动"><span>🗺</span><strong class="dm-compact-location"></strong></div><button class="dm-toggle" type="button"></button></header><div class="dm-content"><nav class="dm-tabs" role="tablist" aria-label="地图功能"></nav><div class="dm-page"></div><div class="dm-savebar"></div><p class="dm-save-status" role="status"></p><p class="dm-feedback" role="status"></p></div>';
     (options.mount??document.body).append(panel);
     const content=panel.querySelector('.dm-content'),page=panel.querySelector('.dm-page'),feedback=panel.querySelector('.dm-feedback'),savebar=panel.querySelector('.dm-savebar'),toggle=panel.querySelector('.dm-toggle');
-    let collapsed=options.inline?false:(readWindowPreferences()?.collapsed??true),tab='view',selected=null,unlocked=false,camera=null,cameraKey='',method='walk',notice='',aiBusy=false,aiPrompt='',includeGlobal=false,nameRoads=false,sourceReport='',editorTool='move',rulesTool='distance',routeId='';
+    let collapsed=options.inline?false:(readWindowPreferences()?.collapsed??true),tab='view',selected=null,unlocked=false,camera=null,cameraKey='',method='walk',notice='',aiBusy=false,aiPrompt='',includeGlobal=false,nameRoads=false,distanceRoads=false,sourceReport='',editorTool='move',rulesTool='distance',routeId='';
     const floating=options.inline?{keepVisible(){},save(){},reset(){},destroy(){}}:attachFloatingWindow(panel,panel.querySelector('.dm-handle'),()=>collapsed);
     if(options.inline){panel.querySelector('.dm-handle').removeAttribute('tabindex');panel.querySelector('.dm-handle').setAttribute('aria-label','消息末尾地图');}
     const tabs=[['view','查看地图'],['edit','调整地图'],['rules','地图规则'],['ai','AI生成地图'],['templates','地图模板'],['settings','设置']];
     const run=fn=>{try{fn();}catch(error){notice=error.message;render();}};
     const edit=fn=>run(()=>{draft.mutate(d=>fn(d.maps[d.activeMap],d));});
-    const layoutEdit=fn=>edit((m,d)=>{fn(m,d);if(m.type==='graph')layoutMap(m);});
+    const layoutEdit=fn=>edit((m,d)=>{fn(m,d);if(!expand&&m.type==='graph')layoutMap(m);});
     function setCollapsed(value){collapsed=value;content.hidden=value;panel.classList.toggle('dm-collapsed',value);toggle.textContent=value?'展开':'收起';toggle.setAttribute('aria-expanded',String(!value));render();floating.keepVisible();floating.save();}
     toggle.addEventListener('click',()=>setCollapsed(!collapsed));
     panel.addEventListener('keydown',e=>{if(e.key==='Escape'){setCollapsed(true);toggle.focus();}});
@@ -158,33 +159,39 @@ export function createPanel(store,persistence,preferences,options={}){
     function renderAI(map){
         const form=el('div',undefined,'dm-form');page.append(form);const api=apiSettings.snapshot();form.append(el('p',`${api.enabled?'使用独立 API：'+api.model:'使用酒馆当前模型'}。生成后请到“调整地图”检查，再保存地图。`));
         const progress=el('p',generationStatus,'dm-generation-progress');progress.setAttribute('role','status');form.append(progress);
+        const distances=field(form,'为道路生成距离',input('','checkbox'));distances.checked=distanceRoads;distances.disabled=aiBusy;distances.onchange=()=>{distanceRoads=distances.checked;};
+        form.append(el('p','新增按钮读取当前资料、当前地图草稿，以及最近 30 条非系统聊天正文（最多 60000 字符）；只新增地点和道路，保留已有资料与当前位置。','dm-help'));
         const naming=field(form,'为道路生成名称',input('','checkbox'));naming.checked=nameRoads;naming.disabled=aiBusy;naming.onchange=()=>{nameRoads=naming.checked;};
         const include=field(form,'同时读取已开启的全局世界书',input('','checkbox'));include.checked=includeGlobal;include.disabled=aiBusy;include.onchange=()=>{includeGlobal=include.checked;sourceReport='';render();};
         form.append(el('p',includeGlobal?'读取角色及聊天绑定世界书，并加入已开启的全局世界书；未开启的其他书籍不读取。':'读取当前角色卡、角色绑定及聊天绑定的世界书。','dm-help'),el('p',sourceReport,'dm-help'));
         const prompt=field(form,'描述你想要的地图',el('textarea'));prompt.value=aiPrompt;prompt.disabled=aiBusy;prompt.oninput=()=>{aiPrompt=prompt.value;};
-        const generate=button(aiBusy?'正在生成…':'生成地图草稿',async()=>{
+        const generateAction=async(expand=false)=>{
             if(aiBusy||disposed)return;
             const api=apiSettings.snapshot();
             const ctx=globalThis.SillyTavern?.getContext?.();if(!api.enabled&&typeof ctx?.generateRaw!=='function'){notice='当前环境没有酒馆生成接口；请在酒馆中配置模型后使用。';render();return;}
-            const token=draft.token(),capturedPrompt=aiPrompt,capturedGlobal=includeGlobal,capturedNaming=nameRoads;
+            const token=draft.token(),capturedPrompt=aiPrompt,capturedGlobal=includeGlobal,capturedNaming=nameRoads,capturedDistance=distanceRoads,base=draft.snapshot();
+            let chatSnapshot=null;
             const job=startGenerationJob({timeoutMs:api.timeoutSeconds*1000,onTick:({stage,seconds})=>{generationStatus=`${stage} · 已等待 ${seconds} 秒 / 最长 ${api.timeoutSeconds} 秒`;const label=panel.querySelector('.dm-generation-progress');if(label)label.textContent=generationStatus;}});
             activeJob=job;aiBusy=true;notice='';sourceReport='';job.setStage('读取角色卡与世界书');render();
             try{
                 persistence.ensureActive();
-                const guard=()=>{job.check();if(disposed)throw new Error('地图窗口已关闭，未应用生成结果');persistence.ensureActive();if(token!==draft.token())throw new Error('读取或生成期间聊天或草稿已变化，请重新生成');};
+                if(expand)chatSnapshot=recentMapChat(ctx);
+                const guard=()=>{job.check();if(disposed)throw new Error('地图窗口已关闭，未应用生成结果');persistence.ensureActive();if(expand&&JSON.stringify(recentMapChat(globalThis.SillyTavern?.getContext?.()))!==JSON.stringify(chatSnapshot))throw new Error('生成期间聊天记录发生变化，请重试');if(token!==draft.token())throw new Error('读取或生成期间聊天或草稿已变化，请重新生成');};
                 const material=await job.wait(()=>readMapSources(ctx,{includeGlobal:capturedGlobal,guard,onProgress:text=>job.setStage(text)}));guard();
                 sourceReport=`已读取：${material.source.角色卡.名称||'当前角色'} · 世界书：${material.books.join('、')||'无'} · ${material.characters} 字符`;render();
                 job.setStage(api.enabled?'等待独立 API 模型返回':'等待酒馆模型返回');
-                const result=await job.wait(()=>generateMapText(ctx,api,{prompt:JSON.stringify({用户要求:capturedPrompt,设定素材:material.source}),systemPrompt:buildMapGenerationPrompt(draft.snapshot(),{nameRoads:capturedNaming}),responseLength:api.maxTokens,trimNames:false},{signal:job.signal}));
+                const result=await job.wait(()=>generateMapText(ctx,api,{prompt:JSON.stringify({用户要求:capturedPrompt,设定素材:material.source,...(expand?{当前地图:base,最近聊天记录:chatSnapshot}:{})}),systemPrompt:buildMapGenerationPrompt(base,{nameRoads:capturedNaming,distanceRoads:capturedDistance})+(expand?'\n本次为新增模式，以下覆盖前述完整文档输出要求：只输出 {"nodes":{},"edges":[]}，其中仅包含新地点和新道路。地点及道路字段仍遵守上述规范。不得重复、修改或删除现有地点与道路；道路可以引用现有地点 ID。保留所有已存在地点的坐标位置，新增方位不得迫使它们移动。结合当前地图和最近聊天消除重复，不把回忆或假设当成已发生事实。没有新增内容时返回空对象和空数组。不要输出 maps、version、activeMap，不要更改当前位置。':''),responseLength:api.maxTokens,trimNames:false},{signal:job.signal}));
                 guard();job.setStage('检查地图结构与路线方位');
                 if(disposed)throw new Error('地图窗口已关闭，未应用生成结果');
                 if(token!==draft.token())throw new Error('生成期间聊天或草稿发生变化，未覆盖当前地图，请重新生成');
                 const raw=String(result).trim().replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,'');
-                const doc=prepareDocument(validateDocument(JSON.parse(raw)));for(const m of Object.values(doc.maps)){validateRules(m);if(m.type==='graph')layoutMap(m);}
-                for(const m of Object.values(doc.maps))if(['沧州 · 示例地图','未命名地图','根据世界设定命名'].includes(m.name))m.name=`${material.source.角色卡.名称||'当前世界'} · 地图`;
+                const parsed=JSON.parse(raw);
+                if(!expand)for(const m of Object.values(parsed.maps??{}))for(const e of m.edges??[]){if(!capturedNaming)e.name='';if(!capturedDistance)e.distance=null;}
+                const doc=expand?applyMapExpansion(base,parsed,{nameRoads:capturedNaming,distanceRoads:capturedDistance}):prepareDocument(validateDocument(parsed));for(const m of Object.values(doc.maps)){validateRules(m);if(!expand&&m.type==='graph')layoutMap(m);}
+                if(!expand)for(const m of Object.values(doc.maps))if(['沧州 · 示例地图','未命名地图','根据世界设定命名'].includes(m.name))m.name=`${material.source.角色卡.名称||'当前世界'} · 地图`;
                 draft.replace(doc);generationStatus='生成完成，已放入草稿；保存地图后查看页才会更新';notice='已生成草稿；请检查并保存地图。';
             }catch(error){generationStatus=error.message;notice=`生成未应用：${error.message}`;}finally{job.finish();activeJob=null;aiBusy=false;render();}
-        });generate.disabled=aiBusy;form.append(generate);if(aiBusy)form.append(button('取消生成',()=>activeJob?.cancel()));
+        };const generate=button(aiBusy?'正在生成…':'生成地图草稿',()=>generateAction(false)),add=button('根据资料与聊天记录新增地点和道路',()=>generateAction(true));generate.disabled=add.disabled=aiBusy;form.append(generate,add);if(aiBusy)form.append(button('取消生成',()=>activeJob?.cancel()));
     }
     const libraryKey=`dynamic-map-templates:${persistence.namespace}`;
     function library(){const value=JSON.parse(localStorage.getItem(libraryKey)||'[]');if(!Array.isArray(value))throw new Error('模板库格式错误');return value;}
