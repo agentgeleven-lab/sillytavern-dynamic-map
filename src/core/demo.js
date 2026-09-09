@@ -2,7 +2,7 @@ import { prepareDocument, layoutMap } from './spatial.js';
 import { createMap, createNode, createEdge } from './protocol.js';
 
 export function createDemoDocument() {
-    const map = createMap('world', '沧州 · 示例地图');
+    const map = createMap('world', '未命名地图');
     map.nodes = {
         qingyun_sect: createNode('qingyun_sect', '青云宗', { type: 'sect', description: '龙门市以北，沿山路可达的修真宗门。', position: { x: 240, y: 105 } }),
         longmen_city: createNode('longmen_city', '龙门市', { type: 'city', description: '山路与官道交汇的城池，也是你当前所在的地点。', position: { x: 240, y: 295 } }),
