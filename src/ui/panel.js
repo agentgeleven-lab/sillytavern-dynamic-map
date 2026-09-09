@@ -22,7 +22,7 @@ export function createPanel(store,persistence,preferences,options={}){
     panel.innerHTML='<header class="dm-header"><div class="dm-handle" tabindex="0" aria-label="拖动地图窗口，方向键移动"><span>🗺</span><strong class="dm-compact-location"></strong></div><button class="dm-toggle" type="button"></button></header><div class="dm-content"><nav class="dm-tabs" role="tablist" aria-label="地图功能"></nav><div class="dm-page"></div><div class="dm-savebar"></div><p class="dm-save-status" role="status"></p><p class="dm-feedback" role="status"></p></div>';
     (options.mount??document.body).append(panel);
     const content=panel.querySelector('.dm-content'),page=panel.querySelector('.dm-page'),feedback=panel.querySelector('.dm-feedback'),savebar=panel.querySelector('.dm-savebar'),toggle=panel.querySelector('.dm-toggle');
-    let collapsed=options.inline?false:(readWindowPreferences()?.collapsed??true),tab='view',selected=null,unlocked=false,camera=null,cameraKey='',method='walk',notice='',aiBusy=false,aiPrompt='',includeGlobal=false,sourceReport='',editorTool='move',rulesTool='distance',routeId='';
+    let collapsed=options.inline?false:(readWindowPreferences()?.collapsed??true),tab='view',selected=null,unlocked=false,camera=null,cameraKey='',method='walk',notice='',aiBusy=false,aiPrompt='',includeGlobal=false,nameRoads=false,sourceReport='',editorTool='move',rulesTool='distance',routeId='';
     const floating=options.inline?{keepVisible(){},save(){},reset(){},destroy(){}}:attachFloatingWindow(panel,panel.querySelector('.dm-handle'),()=>collapsed);
     if(options.inline){panel.querySelector('.dm-handle').removeAttribute('tabindex');panel.querySelector('.dm-handle').setAttribute('aria-label','消息末尾地图');}
     const tabs=[['view','查看地图'],['edit','调整地图'],['rules','地图规则'],['ai','AI生成地图'],['templates','地图模板'],['settings','设置']];
@@ -77,7 +77,7 @@ export function createPanel(store,persistence,preferences,options={}){
         const travel=select(methods,method);field(details,'通行方式',travel);travel.onchange=()=>{method=travel.value;render();};
         const links=connectionDetails(map,node.id,method);
         if(!links.length)details.append(el('p','暂无已发现的相邻路线'));
-        for(const link of links){const line=el('p');line.append(button(link.node.name,()=>{selected=link.node.id;render();}),document.createTextNode(` · ${link.direction.label} · ${link.distance===null?'距离未设置':link.distance+' '+link.unit} · ${roadName(map,link.edge)} · ${map.metadata.roadTypes.find(t=>t.id===link.edge.type)?.name||link.edge.type} · ${link.edge.bidirectional?'双向':link.accessible?'单向出发':'单向到达，不能沿此路出发'} · ${link.minutes===null?'时间无法估算':link.method+'约 '+Number(link.minutes.toFixed(1))+' 分钟'}`));details.append(line);}
+        for(const link of links){const line=el('p');line.append(button(link.node.name,()=>{selected=link.node.id;render();}),document.createTextNode(` · ${link.direction.label} · ${link.distance===null?'距离未设置':link.distance+' '+link.unit}${roadName(map,link.edge)?' · '+roadName(map,link.edge):''} · ${map.metadata.roadTypes.find(t=>t.id===link.edge.type)?.name||link.edge.type} · ${link.edge.bidirectional?'双向':link.accessible?'单向出发':'单向到达，不能沿此路出发'} · ${link.minutes===null?'时间无法估算':link.method+'约 '+Number(link.minutes.toFixed(1))+' 分钟'}`));details.append(line);}
     }
     function switches(host,items,current,change){
         const bar=el('div',undefined,'dm-actions');for(const [id,name]of items){const b=button(name,()=>{change(id);render();});b.setAttribute('aria-pressed',String(id===current));bar.append(b);}host.append(bar);
@@ -100,9 +100,7 @@ export function createPanel(store,persistence,preferences,options={}){
             if(nodes.length<2){form.append(el('p','请先新增至少两个地点'));return;}
             const edge=map.edges.find(e=>e.id===routeId);const pick=field(form,'选择路线',select([{id:'',name:'新增路线'},...roads],edge?.id??''));pick.onchange=()=>{routeId=pick.value;render();};
             const from=field(form,'起点',select(nodes,edge?.from??node?.id??nodes[0].id)),to=field(form,'终点',select(nodes,edge?.to??nodes.find(n=>n.id!==from.value)?.id)),dir=field(form,'终点位于起点的',select(DIRECTIONS,edge?.direction??'east')),type=field(form,'道路类型',select(map.metadata.roadTypes,edge?.type??map.metadata.roadTypes[0].id)),single=field(form,'单向通行（起点 → 终点）',input('','checkbox'));single.checked=edge?!edge.bidirectional:false;
-            const roadLabel=field(form,'道路名称（留空自动命名）',input(edge?.name??'')), roadLength=field(form,`道路距离（${map.metadata.rules.unit}，可留空）`,input(edge?roadDistance(map,edge)??'':'','number')); roadLength.min='0'; roadLength.step='any';
-            roadLabel.placeholder=`${map.nodes[from.value].name}和${map.nodes[to.value].name}之间的道路`;
-            from.onchange=to.onchange=()=>{roadLabel.placeholder=`${map.nodes[from.value].name}和${map.nodes[to.value].name}之间的道路`;};
+            const roadLabel=field(form,'道路名称（可留空）',input(edge?.name??'')), roadLength=field(form,`道路距离（${map.metadata.rules.unit}，可留空）`,input(edge?roadDistance(map,edge)??'':'','number')); roadLength.min='0'; roadLength.step='any';
             form.append(button(edge?'应用路线调整':'添加路线',()=>layoutEdit(m=>{
                 if(from.value===to.value)throw new Error('起点与终点不能相同');
                 if(m.edges.some(e=>e.id!==edge?.id&&((e.from===from.value&&e.to===to.value)||(e.to===from.value&&e.from===to.value))))throw new Error('这两个地点已经连接');
@@ -160,6 +158,7 @@ export function createPanel(store,persistence,preferences,options={}){
     function renderAI(map){
         const form=el('div',undefined,'dm-form');page.append(form);const api=apiSettings.snapshot();form.append(el('p',`${api.enabled?'使用独立 API：'+api.model:'使用酒馆当前模型'}。生成后请到“调整地图”检查，再保存地图。`));
         const progress=el('p',generationStatus,'dm-generation-progress');progress.setAttribute('role','status');form.append(progress);
+        const naming=field(form,'为道路生成名称',input('','checkbox'));naming.checked=nameRoads;naming.disabled=aiBusy;naming.onchange=()=>{nameRoads=naming.checked;};
         const include=field(form,'同时读取已开启的全局世界书',input('','checkbox'));include.checked=includeGlobal;include.disabled=aiBusy;include.onchange=()=>{includeGlobal=include.checked;sourceReport='';render();};
         form.append(el('p',includeGlobal?'读取角色及聊天绑定世界书，并加入已开启的全局世界书；未开启的其他书籍不读取。':'读取当前角色卡、角色绑定及聊天绑定的世界书。','dm-help'),el('p',sourceReport,'dm-help'));
         const prompt=field(form,'描述你想要的地图',el('textarea'));prompt.value=aiPrompt;prompt.disabled=aiBusy;prompt.oninput=()=>{aiPrompt=prompt.value;};
@@ -167,7 +166,7 @@ export function createPanel(store,persistence,preferences,options={}){
             if(aiBusy||disposed)return;
             const api=apiSettings.snapshot();
             const ctx=globalThis.SillyTavern?.getContext?.();if(!api.enabled&&typeof ctx?.generateRaw!=='function'){notice='当前环境没有酒馆生成接口；请在酒馆中配置模型后使用。';render();return;}
-            const token=draft.token(),capturedPrompt=aiPrompt,capturedGlobal=includeGlobal;
+            const token=draft.token(),capturedPrompt=aiPrompt,capturedGlobal=includeGlobal,capturedNaming=nameRoads;
             const job=startGenerationJob({timeoutMs:api.timeoutSeconds*1000,onTick:({stage,seconds})=>{generationStatus=`${stage} · 已等待 ${seconds} 秒 / 最长 ${api.timeoutSeconds} 秒`;const label=panel.querySelector('.dm-generation-progress');if(label)label.textContent=generationStatus;}});
             activeJob=job;aiBusy=true;notice='';sourceReport='';job.setStage('读取角色卡与世界书');render();
             try{
@@ -176,7 +175,7 @@ export function createPanel(store,persistence,preferences,options={}){
                 const material=await job.wait(()=>readMapSources(ctx,{includeGlobal:capturedGlobal,guard,onProgress:text=>job.setStage(text)}));guard();
                 sourceReport=`已读取：${material.source.角色卡.名称||'当前角色'} · 世界书：${material.books.join('、')||'无'} · ${material.characters} 字符`;render();
                 job.setStage(api.enabled?'等待独立 API 模型返回':'等待酒馆模型返回');
-                const result=await job.wait(()=>generateMapText(ctx,api,{prompt:JSON.stringify({用户要求:capturedPrompt,设定素材:material.source}),systemPrompt:buildMapGenerationPrompt(draft.snapshot()),responseLength:api.maxTokens,trimNames:false},{signal:job.signal}));
+                const result=await job.wait(()=>generateMapText(ctx,api,{prompt:JSON.stringify({用户要求:capturedPrompt,设定素材:material.source}),systemPrompt:buildMapGenerationPrompt(draft.snapshot(),{nameRoads:capturedNaming}),responseLength:api.maxTokens,trimNames:false},{signal:job.signal}));
                 guard();job.setStage('检查地图结构与路线方位');
                 if(disposed)throw new Error('地图窗口已关闭，未应用生成结果');
                 if(token!==draft.token())throw new Error('生成期间聊天或草稿发生变化，未覆盖当前地图，请重新生成');

@@ -33,7 +33,7 @@ export function renderMap(map, options) {
                 const x=a.x+(b.x-a.x)*.65,y=a.y+(b.y-a.y)*.65,angle=Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI;
                 g.append(svgNode('path',{d:'M -10 -6 L 0 0 L -10 6',transform:`translate(${x} ${y}) rotate(${angle})`,fill:'none',stroke:'var(--dm-accent)','stroke-width':3}));
             }
-            g.append(svgNode('text',{x:(a.x+b.x)/2+8,y:(a.y+b.y)/2-10},roadName(map,e)));
+            if (roadName(map,e)) g.append(svgNode('text',{x:(a.x+b.x)/2+8,y:(a.y+b.y)/2-10},roadName(map,e)));
             edgeLayer.append(g);
         }
     }
