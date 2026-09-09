@@ -1,3 +1,4 @@
+import { isTileMap, cellPoint, pointCell, tilePlacement, CELL_SIZE } from '../core/tiles.js';
 import { roadName } from '../core/spatial.js';
 import { DIRECTIONS, ROAD_LENGTH, placementPlan } from '../core/spatial.js';
 const NS = 'http://www.w3.org/2000/svg';
@@ -59,6 +60,17 @@ export function renderMap(map, options) {
         group.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onSelect(n.id);}});
         groups.set(n.id,group);nodeLayer.append(group);
     }
+    if(isTileMap(map)){
+        const lattice=svgNode('g',{'pointer-events':'none',class:'dm-cell-layer',stroke:'var(--dm-muted)','stroke-opacity':.28,'stroke-width':1,fill:'none'});
+        const corners=[[-200,-200],[920,-200],[-200,680],[920,680]].map(([x,y])=>pointCell(map.type,{x:(x-camera.x)/camera.zoom,y:(y-camera.y)/camera.zoom}));
+        const minQ=Math.min(...corners.map(c=>c.q))-2,maxQ=Math.max(...corners.map(c=>c.q))+2,minR=Math.min(...corners.map(c=>c.r))-2,maxR=Math.max(...corners.map(c=>c.r))+2;
+        for(let q=minQ;q<=maxQ;q++)for(let r=minR;r<=maxR;r++){
+            const p=cellPoint(map.type,q,r);
+            if(map.type==='grid')lattice.append(svgNode('rect',{x:p.x-80,y:p.y-80,width:160,height:160}));
+            else lattice.append(svgNode('polygon',{points:Array.from({length:6},(_,i)=>{const a=(i*60-30)*Math.PI/180;return `${p.x+CELL_SIZE/Math.sqrt(3)*Math.cos(a)},${p.y+CELL_SIZE/Math.sqrt(3)*Math.sin(a)}`;}).join(' ')}));
+        }
+        viewport.append(lattice);
+    }
     paintEdges(); viewport.append(edgeLayer,compass,nodeLayer);svg.append(viewport);
     let drag=null;
     const point=e=>new DOMPoint(e.clientX,e.clientY).matrixTransform(svg.getScreenCTM().inverse());
@@ -76,7 +88,7 @@ export function renderMap(map, options) {
         drag.moved=true;
         if(drag.id){
             if(!editable)return;
-            const pointer=world(e),plan=placementPlan(map,drag.id,pointer);drag.plan=plan;
+            const pointer=world(e),plan=isTileMap(map)?tilePlacement(map,drag.id,pointer):placementPlan(map,drag.id,pointer);drag.plan=plan;
             if(!plan){onHint('此地点没有直接相连的邻居，请先添加路线。');return;}
             points.set(drag.id,pointer);
             groups.get(drag.id).setAttribute('transform',`translate(${pointer.x} ${pointer.y})`);
@@ -86,7 +98,7 @@ export function renderMap(map, options) {
                 compass.append(svgNode('circle',{cx:plan.position.x,cy:plan.position.y,r:22,fill:'none',stroke:'var(--dm-accent)','stroke-width':2,'stroke-dasharray':'5 4'}));
                 const d=DIRECTIONS.find(d=>d.id===plan.direction).label;
                 onHint(`松手：连接 ${map.nodes[plan.anchorId].name} · ${d}${plan.adjusted?'（原方位被占用，已选择最近空位）':''}${names.length?' · 断开：'+names.join('、'):''}`);
-            } else onHint(plan.mode==='blocked'?plan.reason:`松手：自由放置${names.length?' · 断开：'+names.join('、'):''}`);
+            } else if(plan.mode==='cell'){compass.append(svgNode('circle',{cx:plan.position.x,cy:plan.position.y,r:30,fill:'none',stroke:'var(--dm-accent)'}));onHint(`松手：放置到格子 ${plan.cell.q}, ${plan.cell.r}，保留全部路线`);} else onHint(plan.mode==='blocked'?plan.reason:`松手：自由放置${names.length?' · 断开：'+names.join('、'):''}`);
         }else viewport.setAttribute('transform',`translate(${camera.x+dx} ${camera.y+dy}) scale(${camera.zoom})`);
     });
     function finish(e){
