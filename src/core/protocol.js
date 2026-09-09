@@ -12,6 +12,7 @@
  * view:ViewState,metadata:Object}} MapData
  * @typedef {{version:1,activeMap:string,maps:Object<string,MapData>}} MapDocument
  */
+import { validateCells } from './cells.js';
 import { DIRECTIONS, prepareDocument, validateRules } from './spatial.js';
 export const MAP_TYPES = Object.freeze(['graph', 'hex', 'grid']);
 const forbidden = new Set(['__proto__', 'constructor', 'prototype']);
@@ -113,6 +114,7 @@ export function validateDocument(doc) {
         }
     }
     for (const map of Object.values(doc.maps)) {
+        validateCells(map);
         if (Object.hasOwn(map.metadata, 'rules') || Object.hasOwn(map.metadata, 'nodeTypes') || Object.hasOwn(map.metadata, 'roadTypes')) validateRules(prepareDocument({ maps: { [map.id]: map } }).maps[map.id]);
     }
     return doc;
