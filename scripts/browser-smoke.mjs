@@ -14,6 +14,8 @@ const server=http.createServer((req,res)=>{
   let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{customRequests.push({body:JSON.parse(body),authorization:req.headers.authorization});const doc=createDemoDocument();doc.maps.world.name='独立 API 测试地图';res.setHeader('Content-Type','application/json');res.end(JSON.stringify({choices:[{message:{content:JSON.stringify(doc)}}]}));});return;
  }
  if(pathname==='/scripts/world-info.js'){res.setHeader('Content-Type','text/javascript');res.end(fixtureWorld);return;}
+ if(pathname==='/scripts/variables.js'){res.setHeader('Content-Type','text/javascript');res.end("export function setLocalVariable(k,v){const c=globalThis.SillyTavern.getContext();c.chatMetadata.variables??={};c.chatMetadata.variables[k]=v;}");return;}
+ if(pathname==='/hud/map-link.js'&&process.env.DM_HUD_PATH){res.setHeader('Content-Type','text/javascript');res.end(fs.readFileSync(path.join(process.env.DM_HUD_PATH,'map-link.js')));return;}
  const file=path.resolve(root,'.'+pathname);if(!file.startsWith(root+path.sep)){res.statusCode=403;res.end();return;}
  try{let content=fs.readFileSync(file);if(pathname==='/demo.js')content=content.toString().replace("characters: [{ avatar: 'demo.png' }]","characters: [{ avatar: 'demo.png', data:{name:'测试角色',description:'测试卡片',extensions:{world:'bound'}} }]").replace('async saveMetadata()',`async generateRaw(request){globalThis.__aiRequest=request;const {createDemoDocument}=await import('./src/core/demo.js');const doc=createDemoDocument();doc.maps.world.name='AI 测试地图';return JSON.stringify(doc);},async saveMetadata()`);res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html');res.end(content);}catch{res.statusCode=404;res.end();}
 }).listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
@@ -109,7 +111,7 @@ try{
  assert.equal(await page.getByRole('textbox',{name:'模型名称',exact:true}).inputValue(),'custom-test-model');
  await page.evaluate(()=>{
  const original=globalThis.SillyTavern.getContext;
- globalThis.SillyTavern.getContext=()=>({...original(),chat:[{name:'用户',is_user:true,mes:'城南新发现了一座驿站'}],generateRaw:async request=>{
+ globalThis.SillyTavern.getContext=()=>({...original(),chat:(globalThis.__mapChat??=[{name:'用户',is_user:true,mes:'城南新发现了一座驿站'}]),generateRaw:async request=>{
   globalThis.__expansionRequest=request;
   const {createNode,createEdge}=await import('./src/core/protocol.js');
   const doc=JSON.parse(request.prompt).当前地图,m=doc.maps[doc.activeMap],root=Object.keys(m.nodes).at(-1);
@@ -220,6 +222,18 @@ try{
  await page.getByRole('button',{name:'生成地图草稿',exact:true}).click();await page.waitForFunction(()=>!!globalThis.__resolveLateMap);
  await page.getByRole('combobox',{name:'地图',exact:true}).selectOption('world');await page.evaluate(()=>globalThis.__resolveLateMap('{}'));
  await page.getByText(/生成未应用：.*变化/).waitFor();assert.deepEqual(await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState()),withChild);
+ // Verified host variable contract and companion HUD widget.
+ await page.waitForFunction(()=>globalThis.SillyTavern.getContext().chatMetadata.variables?.地图);
+ const sharedMap=await page.evaluate(()=>JSON.parse(globalThis.SillyTavern.getContext().chatMetadata.variables.地图));assert.equal(sharedMap.来源,'动态地图插件');assert.equal(sharedMap.地图ID,withChild.activeMap);
+ if(process.env.DM_HUD_PATH){
+  await page.evaluate(async()=>{const {createMapLink}=await import('/hud/map-link.js');const widget=createMapLink({open:()=>{globalThis.__hudOpenedMap=true;}});document.body.append(widget.element);globalThis.__mapWidget=widget;});
+  await page.getByRole('button',{name:'打开当前位置地图',exact:true}).click();assert.equal(await page.evaluate(()=>globalThis.__hudOpenedMap),true);await page.getByRole('heading',{name:withChild.maps[withChild.activeMap].name,exact:true}).waitFor();
+  await page.evaluate(()=>globalThis.__mapWidget.destroy());
+ }
+ await page.getByRole('tab',{name:'设置',exact:true}).click();await page.getByRole('checkbox',{name:'允许小白X提交位置更新',exact:true}).check();
+ const requestResult=await page.evaluate(()=>{globalThis.LWB_StateV2={applyText(){}};const c=globalThis.SillyTavern.getContext(),d=globalThis.SillyTavernDynamicMap.getState();c.chatMetadata.variables.地图移动请求=JSON.stringify({请求ID:'browser-move',地图版本:c.chatMetadata.dynamicMapV1.updatedAt,地图ID:'world',地点ID:'qingyun_sect'});return d.activeMap;});
+ await page.waitForFunction(()=>globalThis.SillyTavernDynamicMap.getState().activeMap==='world'&&globalThis.SillyTavernDynamicMap.getCurrentLocation()?.id==='qingyun_sect');
+ await page.waitForFunction(()=>JSON.parse(globalThis.SillyTavern.getContext().chatMetadata.variables.地图).地点ID==='qingyun_sect');
  assert.deepEqual(errors,[]);console.log('PASS: real pointer drag/free drop, draft/save, compact forms, road catalogs, inline message windows with shared drafts, themes and AI source scope and custom API (local mock models).');
 }finally{await browser?.close();server.close();}
 
