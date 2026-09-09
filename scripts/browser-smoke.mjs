@@ -42,6 +42,9 @@ try{
  await page.getByRole('button',{name:'保存地图',exact:true}).click();
  // Compact operations and fixed road catalog.
  await page.getByRole('button',{name:'路线连接',exact:true}).click();assert.equal(await page.getByRole('combobox',{name:'道路类型',exact:true}).count(),1);assert.equal(await page.getByRole('textbox',{name:'道路类型',exact:true}).count(),0);
+ // Route apply must run its layout callback without an undefined generation-mode variable.
+ await page.getByRole('button',{name:'添加路线',exact:true}).click();assert.equal(await page.locator('.dm-edge').count(),1);
+ await page.getByRole('button',{name:'放弃草稿',exact:true}).click();assert.equal(await page.locator('.dm-edge').count(),0);
  await page.getByRole('tab',{name:'地图规则',exact:true}).click();await page.getByRole('button',{name:'道路类型',exact:true}).click();await page.getByRole('textbox',{name:'新道路类型名称',exact:true}).fill('铁路');await page.getByRole('button',{name:'添加类型',exact:true}).click();await page.getByRole('button',{name:'保存地图',exact:true}).click();
  await page.getByRole('tab',{name:'调整地图',exact:true}).click();assert.ok((await page.getByRole('combobox',{name:'道路类型',exact:true}).innerText()).includes('铁路'));
  // Message control mount, dynamic additions, visibility, content isolation and theme persistence.
@@ -124,6 +127,20 @@ try{
  assert.deepEqual(await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState()),priorExpansion);
  await page.getByRole('button',{name:'保存地图',exact:true}).click();
  const expanded=await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState());const em=expanded.maps[expanded.activeMap];assert.equal(em.nodes.new_inn.name,'新驿站');assert.equal(em.edges.find(e=>e.id==='new_inn_road').distance,12);assert.equal(em.edges.find(e=>e.id==='new_inn_road').name,'');
+ // Real UI: create a closed triangle, arrange it, and save the exact preview.
+ await page.evaluate(async()=>{const api=globalThis.SillyTavernDynamicMap,m=api.getState().maps.world;const {createEdge}=await import('./src/core/protocol.js');api.applyUpdate([{type:'upsertEdge',edge:createEdge('cycle_test','qingyun_sect','baisha_town',{direction:'east',type:m.metadata.roadTypes[0].id,distance:42})}]);});
+ await page.getByRole('tab',{name:'调整地图',exact:true}).click();await page.getByRole('button',{name:'自动布局',exact:true}).click();
+ const beforeArrange=await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState());
+ await page.getByRole('button',{name:'自动整理地图',exact:true}).click();assert.match(await page.locator('.dm-feedback').innerText(),/已自动布局/);
+ assert.deepEqual(await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState()),beforeArrange);
+ const positions=await page.locator('[data-node-id]').evaluateAll(nodes=>nodes.map(n=>[n.dataset.nodeId,n.getAttribute('transform')]));
+ await page.getByRole('button',{name:'保存地图',exact:true}).click();assert.deepEqual(await page.locator('[data-node-id]').evaluateAll(nodes=>nodes.map(n=>[n.dataset.nodeId,n.getAttribute('transform')])),positions);
+ const arranged=await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState());assert.equal(arranged.maps.world.edges.length,beforeArrange.maps.world.edges.length);assert.equal(arranged.maps.world.edges.find(e=>e.id==='cycle_test').distance,42);
+ await page.getByRole('button',{name:'地点资料',exact:true}).click();await page.getByRole('combobox',{name:'选择地点',exact:true}).selectOption('longmen_city');
+ await page.getByRole('checkbox',{name:'固定此地点位置（自动布局时保留）',exact:true}).check();await page.getByRole('button',{name:'应用地点调整',exact:true}).click();
+ const pinned=await page.locator('[data-node-id="longmen_city"]').getAttribute('transform');
+ await page.getByRole('button',{name:'自动布局',exact:true}).click();await page.getByRole('button',{name:'自动整理地图',exact:true}).click();assert.equal(await page.locator('[data-node-id="longmen_city"]').getAttribute('transform'),pinned);
+ await page.getByRole('button',{name:'保存地图',exact:true}).click();
  assert.deepEqual(errors,[]);console.log('PASS: real pointer drag/free drop, draft/save, compact forms, road catalogs, inline message windows with shared drafts, themes and AI source scope and custom API (local mock models).');
 }finally{await browser?.close();server.close();}
 
