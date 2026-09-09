@@ -1,3 +1,4 @@
+import { layoutTiles } from './tiles.js';
 import { validateAutoPositions } from './auto-layout.js';
 export const DIRECTIONS = Object.freeze([
     ['north', '北'], ['north-northeast', '北东北'], ['northeast', '东北'], ['east-northeast', '东东北'],
@@ -44,6 +45,7 @@ export function prepareDocument(document) {
             edge.direction = a.x !== null && b.x !== null ? nearestDirection(a, b).id : 'east';
         }
     }
+    for (const map of Object.values(next.maps)) layoutTiles(map);
     return next;
 }
 export function validateRules(map) {

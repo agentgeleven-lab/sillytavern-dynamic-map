@@ -1,3 +1,4 @@
+import { isTileMap, layoutTiles } from './tiles.js';
 import { validateDocument } from './protocol.js';
 import { autoLayout } from './auto-layout.js';
 
@@ -14,7 +15,6 @@ export function applyMapExpansion(document, patch, {nameRoads=false,distanceRoad
     if (!patch || !patch.nodes || Array.isArray(patch.nodes) || typeof patch.nodes!=='object' || !Array.isArray(patch.edges)) throw new Error('新增结果必须包含 nodes 对象和 edges 数组');
     if (Object.keys(patch).some(k=>!['nodes','edges'].includes(k))) throw new Error('新增结果只允许 nodes 和 edges，不能替换地图');
     const next=structuredClone(document),map=next.maps[next.activeMap];
-    if(map.type!=='graph')throw new Error('当前仅支持为 graph 地图新增内容');
     const nodeTypes=new Set(map.metadata.nodeTypes.map(t=>t.id)),roadTypes=new Set(map.metadata.roadTypes.map(t=>t.id));
     const ids=new Set(map.edges.map(e=>e.id)),pairs=new Set(map.edges.map(e=>[e.from,e.to].sort().join('\0')));
     for(const [id,node] of Object.entries(patch.nodes)) {
@@ -32,9 +32,9 @@ export function applyMapExpansion(document, patch, {nameRoads=false,distanceRoad
     validateDocument(next);
     const old=document.maps[document.activeMap];
     // Existing nodes are anchors; only the new geometry may change.
-    const laid=structuredClone(map);autoLayout(laid,{pinnedIds:Object.keys(old.nodes).filter(id=>old.nodes[id].position.x!==null)});
+    const laid=structuredClone(map);if(isTileMap(map)){for(const id of Object.keys(old.nodes))laid.nodes[id].layout.pinned=true;layoutTiles(laid);}else autoLayout(laid,{pinnedIds:Object.keys(old.nodes).filter(id=>old.nodes[id].position.x!==null)});
     for(const id of Object.keys(patch.nodes))map.nodes[id]=laid.nodes[id];
     for(const e of map.edges)if(!old.edges.some(previous=>previous.id===e.id))e.direction=laid.edges.find(x=>x.id===e.id).direction;
-    map.metadata.layout={...map.metadata.layout,mode:'auto'};
+    map.metadata.layout={...map.metadata.layout,mode:isTileMap(map)?'cells':'auto'};
     return next;
 }

@@ -67,6 +67,7 @@ export function validateDocument(doc) {
         expect(MAP_TYPES.includes(map.type), mapId, '未知地图类型');
         expect(map.parentMap === null || (typeof map.parentMap === 'string' && own(doc.maps, map.parentMap)), mapId, '父地图不存在');
         object(map.metadata, `${mapId}.metadata`);
+        if(map.metadata.parentNode != null) expect(map.parentMap && own(doc.maps[map.parentMap].nodes,map.metadata.parentNode),mapId,'上级入口地点不存在');
         object(map.nodes, `${mapId}.nodes`);
         for (const [nodeId, node] of Object.entries(map.nodes)) {
             id(nodeId, 'nodes key'); object(node, nodeId);

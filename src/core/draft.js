@@ -1,10 +1,11 @@
+import { layoutTiles } from './tiles.js';
 import { validateDocument } from './protocol.js';
 import { prepareDocument, validateRules, layoutMap } from './spatial.js';
 
 export function createDraftSession(committed, persistence) {
     const drafts = new Map(), listeners = new Set();
     let current, key, saving = false;
-    const fingerprint = () => JSON.stringify(committed.snapshot());
+    const fingerprint = () => {const document=committed.snapshot();delete document.activeMap;return JSON.stringify(document);};
     function emit() { for (const fn of listeners) fn(); }
     function sync() {
         key = persistence.scope();
@@ -34,7 +35,7 @@ export function createDraftSession(committed, persistence) {
             (current.recovery ? persistence.ensureBound ?? persistence.ensureActive : persistence.ensureActive)();
             if (current.base !== fingerprint()) throw new Error('已保存地图在编辑期间发生变化，请先放弃草稿并重新调整');
             const next = structuredClone(current.document);
-            for (const map of Object.values(next.maps)) { validateRules(map); if (map.type === 'graph') layoutMap(map); }
+            for (const map of Object.values(next.maps)) { validateRules(map); if (map.type === 'graph') layoutMap(map); else layoutTiles(map); }
             validateDocument(next);
             saving = true;
             try { persistence.importDocument(next, persistence.token()); } finally { saving = false; }
