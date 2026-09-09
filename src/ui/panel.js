@@ -185,6 +185,12 @@ export function createPanel(store,persistence,preferences,options={}){
         const enabled=field(form,'在消息末尾显示小型地图按钮',input('','checkbox'));enabled.checked=settings.messageButtons;enabled.onchange=()=>run(()=>preferences.update({messageButtons:enabled.checked}));
         const theme=field(form,'界面主题',select(THEMES,settings.theme));theme.onchange=()=>run(()=>preferences.update({theme:theme.value}));
         form.append(el('p','消息末尾的“🗺 地图”按钮在该消息下方展开完整地图窗口。界面设置立即生效，不修改地图和变量。','dm-help'));
+        if(options.integration){
+            const bridge=options.integration,state=bridge.status();form.append(el('h3','小白X与状态栏联动'));
+            for(const [key,label] of [['variables','同步地图摘要到聊天变量'],['hud','在状态栏显示地图位置'],['allowMoves','允许小白X提交位置更新']]){const toggle=field(form,label,input('','checkbox'));toggle.checked=state[key];toggle.onchange=()=>run(()=>bridge.configure({[key]:toggle.checked}));}
+            form.append(el('p',(state.littleWhiteBox?'已检测到小白X 2.0':'未检测到小白X 2.0；聊天变量仍可供其他插件读取')+' · 状态栏：'+(state.statusHud?'已检测到':'未检测到')+' · '+state.message,'dm-integration-status'),button('重试地图变量同步',()=>void bridge.sync()));
+            const help=field(form,'联动提示词（复制到你的世界书）',el('textarea'));help.readOnly=true;help.value='当前地图摘要（只读，不修改“地图”变量）：\n{{xbgetvar_yaml::地图}}\n只有剧情明确发生移动时，才在 <state> 中完整写入：\n地图移动请求: {"请求ID":"本次唯一编号","地图版本":摘要中的地图版本数字,"地图ID":"目标地图ID","地点ID":"目标地点ID"}\n</state>\n不得虚构 ID；未开启位置更新时请求不执行。位置更新仅记录叙事位置，不自动寻路或推进时间。';
+        }
         form.append(el('h3','地图生成 API'));
         const config=apiSettings.snapshot();
         const use=field(form,'使用独立 API 生成地图',input('','checkbox'));use.checked=config.enabled;
@@ -252,8 +258,9 @@ export function createPanel(store,persistence,preferences,options={}){
         try{for(const item of library()){const row=el('div',undefined,'dm-route');row.append(el('strong',item.name),button('载入草稿',()=>run(()=>{draft.replace(item.document);notice='模板已载入草稿';camera=null;render();})),button('删除模板',()=>run(()=>{localStorage.setItem(libraryKey,JSON.stringify(library().filter(x=>x.id!==item.id)));render();})));form.append(row);}}catch(error){form.append(el('p',error.message));}
         form.append(el('p','模板保存在此浏览器。载入模板会替换未保存草稿；可先导出草稿备份。','dm-help'));
     }
+    const offIntegration=options.integration?.subscribe(state=>{for(const p of panel.querySelectorAll('.dm-integration-status'))p.textContent=(state.littleWhiteBox?'已检测到小白X 2.0':'未检测到小白X 2.0')+' · 状态栏：'+(state.statusHud?'已检测到':'未检测到')+' · '+state.message;});
     const off=draft.subscribe(render),offPreferences=preferences.subscribe(render);setCollapsed(collapsed);
-    return {open(){tab='view';camera=null;selected=null;setCollapsed(false);},resetPosition:floating.reset,setStatus(text){panel.querySelector('.dm-save-status').textContent=text;},destroy(){disposed=true;activeJob?.cancel('地图窗口已关闭，未应用生成结果');off();offPreferences();if(!options.draft)draft.destroy();floating.destroy();panel.remove();}};
+    return {open(options={}){if(options.current){browsedMap=store.snapshot().activeMap;navigationRevision++;}tab='view';camera=null;selected=null;setCollapsed(false);},resetPosition:floating.reset,setStatus(text){panel.querySelector('.dm-save-status').textContent=text;},destroy(){disposed=true;activeJob?.cancel('地图窗口已关闭，未应用生成结果');off();offPreferences();offIntegration?.();if(!options.draft)draft.destroy();floating.destroy();panel.remove();}};
 }
 
 
