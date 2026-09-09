@@ -1,8 +1,11 @@
 import { getActiveMap, getCurrentLocation, getNearbyLocations, getSummary } from '../core/selectors.js';
 
 /** Optional bridges register explicitly. No guessed XiaobaiX/status bar APIs. */
-export function createPublicApi(store, open) {
-    return Object.freeze({ version: 1, open,
+export function createPublicApi(store, open, integration) {
+    return Object.freeze({ version: 1, open, openCurrentLocation:()=>open({current:true}),
+        getIntegrationSummary:()=>integration?.status().hud?integration.summary():null,
+        getIntegrationStatus:()=>integration?.status()??null,
+        requestMove:request=>{if(!integration)throw new Error('联动未初始化');return integration.requestMove(request);},
         getState: store.snapshot,
         getActiveMap: () => getActiveMap(store.snapshot()),
         getCurrentLocation: () => getCurrentLocation(store.snapshot()),
