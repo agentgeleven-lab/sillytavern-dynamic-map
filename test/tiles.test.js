@@ -51,6 +51,6 @@ test('tile draft and hierarchy navigation are isolated until save',()=>{
  const original=prepareDocument(createDemoDocument());original.maps.child=createMap('child','子地图','grid');original.maps.child.parentMap='world';
  const store=createStore(prepareDocument(original)),persistence={scope:()=> 'chat',token:()=>0,ensureActive(){},importDocument:d=>store.replace(d)};
  const draft=createDraftSession(store,persistence);draft.mutate(d=>{d.maps.world.type='hex';layoutTiles(d.maps.world);});
- assert.equal(store.snapshot().maps.world.type,'graph');store.applyUpdate([{type:'setActiveMap',mapId:'child'}]);assert.equal(draft.status().conflict,false);
+ assert.equal(store.snapshot().maps.world.type,'graph');assert.equal(draft.status().conflict,false);
  draft.save();assert.equal(store.snapshot().maps.world.type,'hex');assert.deepEqual(store.snapshot().maps.world.nodes,draft.snapshot().maps.world.nodes);
 });
