@@ -12,7 +12,7 @@ test('expansion preserves old map while adding new connected nodes',()=>{
  assert.throws(()=>applyMapExpansion(d,{nodes:{longmen_city:patch.nodes.new_place},edges:[]}),/已存在/);
  assert.throws(()=>applyMapExpansion(d,{nodes:{},edges:[{...d.maps.world.edges[0],id:'duplicate'}]}),/重复/);
  assert.throws(()=>applyMapExpansion(d,{...patch,currentLocation:'new_place'}),/只允许/);
- assert.throws(()=>applyMapExpansion(d,{nodes:patch.nodes,edges:[{...patch.edges[0],direction:'north'}]}),/同一方位/);
+ const adjusted=applyMapExpansion(d,{nodes:patch.nodes,edges:[{...patch.edges[0],direction:'north'}]});assert.ok(adjusted.maps.world.nodes.new_place);assert.deepEqual(adjusted.maps.world.nodes.longmen_city,d.maps.world.nodes.longmen_city);
 });
 test('chat reader selects latest visible text, not hidden or unselected swipes',()=>{
  const chat=Array.from({length:35},(_,i)=>({mes:String(i),name:'角色',swipes:['secret']}));chat.push({is_system:true,mes:'hidden'});
