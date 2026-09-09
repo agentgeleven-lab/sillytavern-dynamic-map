@@ -1,3 +1,4 @@
+import { autoLayout } from '../core/auto-layout.js';
 import { recentMapChat, applyMapExpansion } from '../core/map-expansion.js';
 import { startGenerationJob } from '../core/generation-job.js';
 import { buildMapGenerationPrompt } from '../core/generation-prompt.js';
@@ -29,7 +30,7 @@ export function createPanel(store,persistence,preferences,options={}){
     const tabs=[['view','查看地图'],['edit','调整地图'],['rules','地图规则'],['ai','AI生成地图'],['templates','地图模板'],['settings','设置']];
     const run=fn=>{try{fn();}catch(error){notice=error.message;render();}};
     const edit=fn=>run(()=>{draft.mutate(d=>fn(d.maps[d.activeMap],d));});
-    const layoutEdit=fn=>edit((m,d)=>{fn(m,d);if(!expand&&m.type==='graph')layoutMap(m);});
+    const layoutEdit=fn=>edit((m,d)=>{fn(m,d);if(m.type==='graph')autoLayout(m);camera=null;});
     function setCollapsed(value){collapsed=value;content.hidden=value;panel.classList.toggle('dm-collapsed',value);toggle.textContent=value?'展开':'收起';toggle.setAttribute('aria-expanded',String(!value));render();floating.keepVisible();floating.save();}
     toggle.addEventListener('click',()=>setCollapsed(!collapsed));
     panel.addEventListener('keydown',e=>{if(e.key==='Escape'){setCollapsed(true);toggle.focus();}});
@@ -69,7 +70,7 @@ export function createPanel(store,persistence,preferences,options={}){
         const hint=el('p',notice,'dm-drag-hint');hint.setAttribute('role','status');page.append(hint);
         camera??=fitCamera(map,tab==='edit');
         canvas.append(renderMap(map,{camera,adjusting:tab==='edit',editable:tab==='edit'&&unlocked,onSelect:id=>{selected=id;render();},onCamera:value=>{camera=value;render();},onSnap:(id,plan)=>edit(m=>{applyPlacement(m,id,plan,uid('edge'));notice='已调整草稿；保存地图后生效';}),onHint:text=>{hint.textContent=text;}}));
-        page.append(el('p',`线段等长，仅示意连接；距离以道路资料为准 · 拖动空白平移 · 滚轮缩放`,'dm-help'));
+        page.append(el('p',`${map.metadata.layout?.mode==='auto'?'自动布局，图上线长不代表距离':'等长方位布局'} · 距离以道路资料为准 · 拖动空白平移 · 滚轮缩放`,'dm-help'));
         if(tab==='edit'){if(map.nodes[selected])page.append(el('p',"已选中："+map.nodes[selected].name,'dm-help'));return;}
         const node=map.nodes[selected],details=el('div',undefined,'dm-details');page.append(details);
         if(!node||(!node.discovered&&tab==='view')){details.textContent='点击地点或途经点查看说明与相邻路线。';return;}
@@ -84,15 +85,17 @@ export function createPanel(store,persistence,preferences,options={}){
         const bar=el('div',undefined,'dm-actions');for(const [id,name]of items){const b=button(name,()=>{change(id);render();});b.setAttribute('aria-pressed',String(id===current));bar.append(b);}host.append(bar);
     }
     function renderEditor(map){
-        switches(page,[['move','移动地点'],['node','地点资料'],['route','路线连接'],['waypoint','途经点'],['delete','删除']],editorTool,id=>editorTool=id);
+        switches(page,[['move','移动地点'],['layout','自动布局'],['node','地点资料'],['route','路线连接'],['waypoint','途经点'],['delete','删除']],editorTool,id=>editorTool=id);
         const form=el('div',undefined,'dm-form');page.append(form);const node=map.nodes[selected],nodes=Object.values(map.nodes);
+        if(editorTool==='layout'){form.append(el('p','自动分散地点、排列独立区域并处理闭环。图上线长可以不同，不改变道路的实际距离、名称和连接；普通路线方位随布局更新，锁定方位和固定地点必须保留。','dm-help'));form.append(button('自动整理地图',()=>edit(m=>{const result=autoLayout(m);camera=null;notice=`已自动布局 ${result.nodes} 个地点、${result.components} 个区域，调整 ${result.changedDirections} 条路线方位；保存地图后生效`; })));form.append(el('p','在地点资料中固定位置，在路线连接中锁定方位。无法同时满足时会提示冲突。道路交叉只表示线条相交，不代表新增路口；需要路口请添加途经点。','dm-help'));return;}
         if(editorTool==='move'){form.append(el('p','勾选“允许拖动地点”后自由移动。靠近任意地点会显示方位；松手连接它并断开其他旧路，远处松手自由放置。','dm-help'));return;}
         if(editorTool==='node'){
             const pick=field(form,'选择地点',select([{id:'',name:'新增地点'},...nodes],node?.id??''));pick.onchange=()=>{selected=pick.value||null;render();};
             const name=field(form,'名称',input(node?.name??'')),type=field(form,'地点类型',select(map.metadata.nodeTypes,node?.type??map.metadata.nodeTypes[0].id)),description=field(form,'说明',el('textarea'));description.value=node?.description??'';
+            const pin=field(form,'固定此地点位置（自动布局时保留）',input('','checkbox'));pin.checked=!!node?.layout.pinned;
             form.append(button(node?'应用地点调整':'新增地点',()=>edit(m=>{
                 if(!name.value.trim())throw new Error('请填写地点名称');const id=node?.id??uid('node');
-                m.nodes[id]=node?{...m.nodes[id],name:name.value.trim(),type:type.value,description:description.value}:createNode(id,name.value.trim(),{type:type.value,description:description.value,position:{x:100+Object.keys(m.nodes).length*210,y:480}});selected=id;camera=null;
+                m.nodes[id]=node?{...m.nodes[id],name:name.value.trim(),type:type.value,description:description.value}:createNode(id,name.value.trim(),{type:type.value,description:description.value,position:{x:100+Object.keys(m.nodes).length*210,y:480}});m.nodes[id].layout.pinned=pin.checked;if(!node&&m.metadata.layout?.mode==='auto')autoLayout(m,{pinnedIds:Object.keys(m.nodes).filter(key=>key!==id)});selected=id;camera=null;
             })));
             if(node)form.append(button('设为当前位置',()=>edit(m=>{m.currentLocation=node.id;m.nodes[node.id].discovered=true;})));return;
         }
@@ -102,10 +105,11 @@ export function createPanel(store,persistence,preferences,options={}){
             const edge=map.edges.find(e=>e.id===routeId);const pick=field(form,'选择路线',select([{id:'',name:'新增路线'},...roads],edge?.id??''));pick.onchange=()=>{routeId=pick.value;render();};
             const from=field(form,'起点',select(nodes,edge?.from??node?.id??nodes[0].id)),to=field(form,'终点',select(nodes,edge?.to??nodes.find(n=>n.id!==from.value)?.id)),dir=field(form,'终点位于起点的',select(DIRECTIONS,edge?.direction??'east')),type=field(form,'道路类型',select(map.metadata.roadTypes,edge?.type??map.metadata.roadTypes[0].id)),single=field(form,'单向通行（起点 → 终点）',input('','checkbox'));single.checked=edge?!edge.bidirectional:false;
             const roadLabel=field(form,'道路名称（可留空）',input(edge?.name??'')), roadLength=field(form,`道路距离（${map.metadata.rules.unit}，可留空）`,input(edge?roadDistance(map,edge)??'':'','number')); roadLength.min='0'; roadLength.step='any';
+            const lock=field(form,'锁定此道路方位（自动布局时保留）',input('','checkbox'));lock.checked=edge?!!edge.metadata.directionLocked:true;
             form.append(button(edge?'应用路线调整':'添加路线',()=>layoutEdit(m=>{
                 if(from.value===to.value)throw new Error('起点与终点不能相同');
                 if(m.edges.some(e=>e.id!==edge?.id&&((e.from===from.value&&e.to===to.value)||(e.to===from.value&&e.from===to.value))))throw new Error('这两个地点已经连接');
-                const id=edge?.id??uid('edge');const next=createEdge(id,from.value,to.value,{...(edge??{}),from:from.value,to:to.value,direction:dir.value,type:type.value,name:roadLabel.value.trim(),distance:roadLength.value.trim()===''?null:Number(roadLength.value),bidirectional:!single.checked});
+                const id=edge?.id??uid('edge');const next=createEdge(id,from.value,to.value,{...(edge??{}),from:from.value,to:to.value,direction:dir.value,type:type.value,name:roadLabel.value.trim(),distance:roadLength.value.trim()===''?null:Number(roadLength.value),bidirectional:!single.checked,metadata:{...(edge?.metadata??{}),directionLocked:lock.checked}});
                 m.edges=m.edges.filter(e=>e.id!==id);m.edges.push(next);routeId=id;
             })));return;
         }
@@ -180,14 +184,14 @@ export function createPanel(store,persistence,preferences,options={}){
                 const material=await job.wait(()=>readMapSources(ctx,{includeGlobal:capturedGlobal,guard,onProgress:text=>job.setStage(text)}));guard();
                 sourceReport=`已读取：${material.source.角色卡.名称||'当前角色'} · 世界书：${material.books.join('、')||'无'} · ${material.characters} 字符`;render();
                 job.setStage(api.enabled?'等待独立 API 模型返回':'等待酒馆模型返回');
-                const result=await job.wait(()=>generateMapText(ctx,api,{prompt:JSON.stringify({用户要求:capturedPrompt,设定素材:material.source,...(expand?{当前地图:base,最近聊天记录:chatSnapshot}:{})}),systemPrompt:buildMapGenerationPrompt(base,{nameRoads:capturedNaming,distanceRoads:capturedDistance})+(expand?'\n本次为新增模式，以下覆盖前述完整文档输出要求：只输出 {"nodes":{},"edges":[]}，其中仅包含新地点和新道路。地点及道路字段仍遵守上述规范。不得重复、修改或删除现有地点与道路；道路可以引用现有地点 ID。保留所有已存在地点的坐标位置，新增方位不得迫使它们移动。结合当前地图和最近聊天消除重复，不把回忆或假设当成已发生事实。没有新增内容时返回空对象和空数组。不要输出 maps、version、activeMap，不要更改当前位置。':''),responseLength:api.maxTokens,trimNames:false},{signal:job.signal}));
+                const result=await job.wait(()=>generateMapText(ctx,api,{prompt:JSON.stringify({用户要求:capturedPrompt,设定素材:material.source,...(expand?{当前地图:base,最近聊天记录:chatSnapshot}:{})}),systemPrompt:buildMapGenerationPrompt(base,{nameRoads:capturedNaming,distanceRoads:capturedDistance})+(expand?'\n本次为新增模式，以下覆盖前述完整文档输出要求：只输出 {"nodes":{},"edges":[]}，其中仅包含新地点和新道路。地点及道路字段仍遵守上述规范。不得重复、修改或删除现有地点与道路；道路可以引用现有地点 ID。保留所有已存在地点的坐标位置，新增方位先作为布局偏好，由自动布局安排；有明确设定依据且不能调整的方位在道路 metadata.directionLocked 写 true，否则不锁定。结合当前地图和最近聊天消除重复，不把回忆或假设当成已发生事实。没有新增内容时返回空对象和空数组。不要输出 maps、version、activeMap，不要更改当前位置。':''),responseLength:api.maxTokens,trimNames:false},{signal:job.signal}));
                 guard();job.setStage('检查地图结构与路线方位');
                 if(disposed)throw new Error('地图窗口已关闭，未应用生成结果');
                 if(token!==draft.token())throw new Error('生成期间聊天或草稿发生变化，未覆盖当前地图，请重新生成');
                 const raw=String(result).trim().replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,'');
                 const parsed=JSON.parse(raw);
                 if(!expand)for(const m of Object.values(parsed.maps??{}))for(const e of m.edges??[]){if(!capturedNaming)e.name='';if(!capturedDistance)e.distance=null;}
-                const doc=expand?applyMapExpansion(base,parsed,{nameRoads:capturedNaming,distanceRoads:capturedDistance}):prepareDocument(validateDocument(parsed));for(const m of Object.values(doc.maps)){validateRules(m);if(!expand&&m.type==='graph')layoutMap(m);}
+                const doc=expand?applyMapExpansion(base,parsed,{nameRoads:capturedNaming,distanceRoads:capturedDistance}):prepareDocument(validateDocument(parsed));for(const m of Object.values(doc.maps)){validateRules(m);if(!expand&&m.type==='graph')autoLayout(m);}
                 if(!expand)for(const m of Object.values(doc.maps))if(['沧州 · 示例地图','未命名地图','根据世界设定命名'].includes(m.name))m.name=`${material.source.角色卡.名称||'当前世界'} · 地图`;
                 draft.replace(doc);generationStatus='生成完成，已放入草稿；保存地图后查看页才会更新';notice='已生成草稿；请检查并保存地图。';
             }catch(error){generationStatus=error.message;notice=`生成未应用：${error.message}`;}finally{job.finish();activeJob=null;aiBusy=false;render();}
