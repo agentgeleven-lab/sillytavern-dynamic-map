@@ -104,6 +104,26 @@ try{
  await page.getByRole('tab',{name:'查看地图',exact:true}).click();assert.equal(await page.getByRole('heading',{name:'独立 API 测试地图',exact:true}).count(),0);
  await page.reload();await page.getByRole('tab',{name:'设置',exact:true}).click();assert.equal(await page.getByLabel('API 密钥',{exact:true}).inputValue(),'');
  assert.equal(await page.getByRole('textbox',{name:'模型名称',exact:true}).inputValue(),'custom-test-model');
+ await page.evaluate(()=>{
+ const original=globalThis.SillyTavern.getContext;
+ globalThis.SillyTavern.getContext=()=>({...original(),chat:[{name:'用户',is_user:true,mes:'城南新发现了一座驿站'}],generateRaw:async request=>{
+  globalThis.__expansionRequest=request;
+  const {createNode,createEdge}=await import('./src/core/protocol.js');
+  const doc=JSON.parse(request.prompt).当前地图,m=doc.maps[doc.activeMap],root=Object.keys(m.nodes).at(-1);
+  return JSON.stringify({nodes:{new_inn:createNode('new_inn','新驿站',{type:m.metadata.nodeTypes[0].id})},edges:[createEdge('new_inn_road',root,'new_inn',{direction:'east',type:m.metadata.roadTypes[0].id,name:'驿道',distance:12})]});
+ }});
+ });
+ await page.getByRole('tab',{name:'设置',exact:true}).click();await page.getByRole('checkbox',{name:'使用独立 API 生成地图',exact:true}).uncheck();await page.getByRole('button',{name:'保存 API 设置',exact:true}).click();
+ await page.getByRole('tab',{name:'AI生成地图',exact:true}).click();
+ assert.equal(await page.getByRole('checkbox',{name:'为道路生成距离',exact:true}).isChecked(),false);
+ await page.getByRole('checkbox',{name:'为道路生成距离',exact:true}).check();
+ const priorExpansion=await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState());
+ await page.getByRole('button',{name:'根据资料与聊天记录新增地点和道路',exact:true}).click();
+ await page.getByText('已生成草稿；请检查并保存地图。',{exact:true}).waitFor({timeout:5000}).catch(async e=>{console.log(await page.locator('.dm-generation-progress').innerText());throw e;});
+ const expansionRequest=await page.evaluate(()=>JSON.parse(globalThis.__expansionRequest.prompt));assert.equal(expansionRequest.最近聊天记录[0].内容,'城南新发现了一座驿站');assert.ok(expansionRequest.当前地图);
+ assert.deepEqual(await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState()),priorExpansion);
+ await page.getByRole('button',{name:'保存地图',exact:true}).click();
+ const expanded=await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState());const em=expanded.maps[expanded.activeMap];assert.equal(em.nodes.new_inn.name,'新驿站');assert.equal(em.edges.find(e=>e.id==='new_inn_road').distance,12);assert.equal(em.edges.find(e=>e.id==='new_inn_road').name,'');
  assert.deepEqual(errors,[]);console.log('PASS: real pointer drag/free drop, draft/save, compact forms, road catalogs, inline message windows with shared drafts, themes and AI source scope and custom API (local mock models).');
 }finally{await browser?.close();server.close();}
 
