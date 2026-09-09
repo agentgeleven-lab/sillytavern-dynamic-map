@@ -56,7 +56,7 @@ export function createPanel(store,persistence,preferences,options={}){
         page.append(el('h2',map.name));
         if(map.parentMap)page.append(button('返回上级：'+document.maps[map.parentMap].name,()=>navigateMap(map.parentMap)));
         const children=Object.values(document.maps).filter(m=>m.parentMap===map.id);
-        for(const child of children)if(!child.metadata.parentNode||(tab!=='view'||map.nodes[child.metadata.parentNode]?.discovered))page.append(button('进入：'+child.name,()=>navigateMap(child.id)));
+        for(const child of children)if(tab!=='view')page.append(button('进入：'+child.name,()=>navigateMap(child.id)));
 
         const pathBar=el('div',undefined,'dm-actions');for(const ancestor of mapPath(document,map.id))pathBar.append(button(ancestor.name,()=>navigateMap(ancestor.id)));page.append(pathBar);
         page.append(el('p','角色位置：'+locationPath(saved),'dm-help'));
@@ -93,7 +93,7 @@ export function createPanel(store,persistence,preferences,options={}){
         if(isTileMap(map)&&selectedCells.length){renderCellDetails(details,map,selectedCells[0],kit);return;}
         if(!node||(!node.discovered&&tab==='view')){details.textContent='点击地点或途经点查看说明与相邻路线。';return;}
         details.append(el('h3',node.name),el('p',node.description||'暂无说明'));
-        for(const child of Object.values(displayDoc.maps).filter(m=>m.parentMap===map.id&&m.metadata.parentNode===node.id))details.append(button('打开内部地图：'+child.name,()=>navigateMap(child.id)));
+        for(const child of Object.values(displayDoc.maps).filter(m=>m.parentMap===map.id&&m.metadata.parentNode===node.id))details.append(button('进入内部地图：'+child.name,()=>navigateMap(child.id)));
         const methods=map.metadata.rules.methods;if(!methods.some(m=>m.id===method))method=methods[0].id;
         const travel=select(methods,method);field(details,'通行方式',travel);travel.onchange=()=>{method=travel.value;render();};
         const links=connectionDetails(map,node.id,method);
