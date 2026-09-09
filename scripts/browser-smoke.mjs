@@ -72,6 +72,21 @@ try{
  await page.getByRole('tab',{name:'AI生成地图',exact:true}).click();await page.getByRole('button',{name:'生成地图草稿',exact:true}).click();await page.getByText('已生成草稿；请检查并保存地图。',{exact:true}).waitFor();
  let request=await page.evaluate(()=>JSON.parse(globalThis.__aiRequest.prompt));assert.equal(request.设定素材.角色卡.名称,'测试角色');assert.deepEqual(request.设定素材.世界书.map(b=>b.名称),['bound']);
  await page.getByRole('checkbox',{name:'同时读取已开启的全局世界书',exact:true}).check();await page.getByRole('button',{name:'生成地图草稿',exact:true}).click();await page.getByText('已生成草稿；请检查并保存地图。',{exact:true}).waitFor();request=await page.evaluate(()=>JSON.parse(globalThis.__aiRequest.prompt));assert.deepEqual(request.设定素材.世界书.map(b=>b.名称),['bound','enabled']);assert.ok(!(await page.evaluate(()=>globalThis.__bookReads)).includes('disabled'));
+ // Reproduce a host promise that never returns, then cancel and ignore a late result.
+ await page.evaluate(()=>{globalThis.__originalGetContext=globalThis.SillyTavern.getContext;globalThis.SillyTavern.getContext=()=>({...globalThis.__originalGetContext(),generateRaw:()=>new Promise(resolve=>globalThis.__resolveHung=resolve)});});
+ const previousMap=await page.evaluate(()=>JSON.stringify(globalThis.SillyTavernDynamicMap.getState()));
+ await page.getByRole('button',{name:'生成地图草稿',exact:true}).click();
+ await page.getByText(/等待酒馆模型返回 · 已等待/).waitFor();
+ await page.getByRole('button',{name:'取消生成',exact:true}).click();
+ await page.getByRole('button',{name:'生成地图草稿',exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'生成地图草稿',exact:true}).isEnabled(),true);
+ await page.evaluate(()=>globalThis.__resolveHung('{"invalid":"late"}'));assert.equal(await page.evaluate(()=>JSON.stringify(globalThis.SillyTavernDynamicMap.getState())),previousMap);
+ // Total timeout also releases the UI when a host promise never settles.
+ await page.getByRole('tab',{name:'设置',exact:true}).click();await page.getByRole('spinbutton',{name:'生成总超时（秒，两种模型均适用）',exact:true}).fill('10');await page.getByRole('button',{name:'保存 API 设置',exact:true}).click();
+ await page.getByRole('tab',{name:'AI生成地图',exact:true}).click();await page.getByRole('button',{name:'生成地图草稿',exact:true}).click();
+ await page.locator('.dm-generation-progress').filter({hasText:'生成总等待超时'}).waitFor({timeout:15000});assert.equal(await page.getByRole('button',{name:'生成地图草稿',exact:true}).isEnabled(),true);
+ await page.evaluate(()=>globalThis.SillyTavern.getContext=globalThis.__originalGetContext);
+ await page.getByRole('tab',{name:'调整地图',exact:true}).click();await page.getByRole('textbox',{name:'地图名称',exact:true}).fill('自定地图名称');await page.getByRole('button',{name:'应用地图名称',exact:true}).click();await page.getByRole('button',{name:'保存地图',exact:true}).click();
+ await page.getByRole('tab',{name:'查看地图',exact:true}).click();await page.getByRole('heading',{name:'自定地图名称',exact:true}).waitFor();
  // Independent API works without the host generation method and keeps keys out of storage.
  await page.getByRole('tab',{name:'设置',exact:true}).click();
  await page.getByRole('checkbox',{name:'使用独立 API 生成地图',exact:true}).check();
