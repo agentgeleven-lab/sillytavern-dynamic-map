@@ -163,7 +163,7 @@ try{
  assert.equal(child.parentMap,'world');assert.equal(child.metadata.parentNode,'longmen_city');assert.equal(child.type,'grid');
  await page.getByRole('tab',{name:'查看地图',exact:true}).click();
  await page.getByRole('button',{name:/^返回上级：/}).click();
- await page.getByRole('button',{name:'进入：龙门城内',exact:true}).click();
+ assert.equal(await page.getByRole('button',{name:'进入：龙门城内',exact:true}).count(),0);assert.equal(await page.getByRole('button',{name:'进入内部地图：龙门城内',exact:true}).count(),0);await page.locator('[data-node-id="longmen_city"] .dm-dot').click();await page.getByRole('button',{name:'进入内部地图：龙门城内',exact:true}).click();
  assert.equal((await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState())).activeMap,child.id);
  await page.getByRole('tab',{name:'调整地图',exact:true}).click();
  await page.getByRole('button',{name:'允许拖动地点',exact:true}).click();
@@ -205,7 +205,7 @@ try{
  const roleBefore=await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState());
  await page.getByRole('button',{name:/^返回上级：/}).click();assert.deepEqual(await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState()),roleBefore);
  assert.equal(await page.locator('[data-node-id="longmen_city"]').getAttribute('class'),'dm-node dm-current');
- await page.locator('[data-node-id="longmen_city"] .dm-dot').click();await page.getByRole('button',{name:'打开内部地图：龙门城内',exact:true}).click();
+ await page.locator('[data-node-id="longmen_city"] .dm-dot').click();await page.getByRole('button',{name:'进入内部地图：龙门城内',exact:true}).click();
  assert.deepEqual(await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState()),roleBefore);
  await page.getByRole('button',{name:/^返回上级：/}).click();await page.getByRole('tab',{name:'AI生成地图',exact:true}).click();
  await page.evaluate(()=>{const original=globalThis.SillyTavern.getContext;globalThis.SillyTavern.getContext=()=>({...original(),generateRaw:async request=>{globalThis.__childRequest=request;const {createMap,createNode}=await import('./src/core/protocol.js'),{prepareDocument}=await import('./src/core/spatial.js'),m=createMap('generated','内部生成测试','hex');m.nodes.gate=createNode('gate','内门');return JSON.stringify(prepareDocument({version:1,activeMap:m.id,maps:{[m.id]:m}}));}});});
