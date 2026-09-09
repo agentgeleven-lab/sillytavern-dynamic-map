@@ -102,7 +102,7 @@ AI 素材适配位于 src/adapters/sources.js；使用 selected_world_info 增�
 
 格子移动不改变拓扑，更新路线的 16 方位描述并清除 metadata.directionLocked。layout.pinned 继续禁止拖动；形态转换会吸附坐标，多个固定地点落在同一格时拒绝转换。metadata.layout.mode 为 cells。
 
-Map.parentMap 引用上级地图；可选 Map.metadata.parentNode 引用该上级内入口地点。父级与入口必须存在，层级不能成环。道路端点仍局限同一地图。导航设置 activeMap，不隐式更新任何地图的 currentLocation。AI 整图结果只替换当前 Map 并恢复原 ID/父级/入口；其他地图保留。入口缺失时报错，避免生成删除子地图入口。
+Map.parentMap 引用上级地图；可选 Map.metadata.parentNode 引用该上级内入口地点。父级与入口必须存在，层级不能成环。道路端点仍局限同一地图。v0.10.0 导航仅修改窗口浏览状态，activeMap 表示角色所在地图，不因浏览改变。AI 整图结果只替换当前 Map 并恢复原 ID/父级/入口；其他地图保留。入口缺失时报错，避免生成删除子地图入口。
 
 
 ## v0.9.0 格子属性
@@ -112,3 +112,12 @@ Map.parentMap 引用上级地图；可选 Map.metadata.parentNode 引用该上�
 可选 Map.metadata.cellRules 包含 areas、terrains、regions 三个数组，每类最多 500 项。条目为 {id,name,color}，行政区域增加 parentId（上级区域 ID 或 null）。禁止悬空引用与循环；在格子中使用或存在下级的条目不得删除。无规则时采用默认区域与地形目录。与 Map.parentMap 地图导航层级独立。
 
 坐标是格子身份；切换 hex/grid 保留 q/r，切换 graph 仅隐藏属性。颜色为独立颜色 > 区域类型 > 地形 > 行政区域。AI 完整生成由插件恢复原有 cells/cellRules，新增模式也保留两者；格子资料不进入当前对外地点摘要，不触发移动或道路距离换算。
+
+
+## v0.10.0 浏览范围与生成范围
+
+浏览地图 ID 不再写入文档。activeMap + 对应 Map.currentLocation 标识角色位置；外部 setActiveMap 是显式更改角色地图，已保存摘要仍读取 activeMap。祖先视图沿 parentMap/metadata.parentNode 投影当前位置。旧存档不猜测历史位置，沿用存储的 activeMap。
+
+Map.metadata.generationLevel 记录最近生成层级（world/region/city/site/interior/custom），仅用于提示词范围，不决定形态或行政归属。生成时临时以目标地图构造输入，结果合并后恢复角色地图 ID。生成新子地图时只有通过校验的结果才加入草稿。导航修订号、草稿令牌及聊天令牌共同防止迟到响应错位应用。
+
+草稿提供 applyGeneration/undoGeneration，一份生成前快照仅在未发生后续编辑或保存时可撤销，所有窗口共用草稿检查。保存提交全部地图；角色地图变更也参与冲突检查。
