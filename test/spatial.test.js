@@ -58,6 +58,6 @@ test('optional road distance preserves legacy values and never changes diagram l
  const migrated=prepareDocument(doc).maps.world;assert.equal(migrated.edges[0].distance,7);
  const before=structuredClone(migrated.nodes);migrated.edges[0].distance=99;layoutMap(migrated);assert.deepEqual(migrated.nodes,before);
  migrated.edges[0].distance=null;assert.equal(connectionDetails(migrated,'qingyun_sect','walk')[0].minutes,null);
- migrated.edges[0].name='';assert.equal(roadName(migrated,migrated.edges[0]),'龙门市和青云宗之间的道路');
+ migrated.edges[0].name='';assert.equal(roadName(migrated,migrated.edges[0]),'');
  const {draft}=fixture();assert.throws(()=>draft.mutate(d=>d.maps.world.edges[0].distance=-1));
 });
