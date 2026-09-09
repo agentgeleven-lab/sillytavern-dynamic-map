@@ -103,3 +103,12 @@ AI 素材适配位于 src/adapters/sources.js；使用 selected_world_info 增�
 格子移动不改变拓扑，更新路线的 16 方位描述并清除 metadata.directionLocked。layout.pinned 继续禁止拖动；形态转换会吸附坐标，多个固定地点落在同一格时拒绝转换。metadata.layout.mode 为 cells。
 
 Map.parentMap 引用上级地图；可选 Map.metadata.parentNode 引用该上级内入口地点。父级与入口必须存在，层级不能成环。道路端点仍局限同一地图。导航设置 activeMap，不隐式更新任何地图的 currentLocation。AI 整图结果只替换当前 Map 并恢复原 ID/父级/入口；其他地图保留。入口缺失时报错，避免生成删除子地图入口。
+
+
+## v0.9.0 格子属性
+
+可选 Map.metadata.cells 为稀疏对象，键是标准化的 `q,r` 整数坐标，范围各为 ±1000000。值包含六个字符串字段：area、terrain、region、name、description、color。前三者为空或引用当前地图目录 ID，color 为空或 #RRGGBB。最多 10000 格；未记录的格子没有属性。
+
+可选 Map.metadata.cellRules 包含 areas、terrains、regions 三个数组，每类最多 500 项。条目为 {id,name,color}，行政区域增加 parentId（上级区域 ID 或 null）。禁止悬空引用与循环；在格子中使用或存在下级的条目不得删除。无规则时采用默认区域与地形目录。与 Map.parentMap 地图导航层级独立。
+
+坐标是格子身份；切换 hex/grid 保留 q/r，切换 graph 仅隐藏属性。颜色为独立颜色 > 区域类型 > 地形 > 行政区域。AI 完整生成由插件恢复原有 cells/cellRules，新增模式也保留两者；格子资料不进入当前对外地点摘要，不触发移动或道路距离换算。
