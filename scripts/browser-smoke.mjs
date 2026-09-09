@@ -174,6 +174,33 @@ try{
  assert.notDeepEqual(moved.maps[child.id].nodes[child.currentLocation].position,child.nodes[child.currentLocation].position);
  assert.equal(moved.maps[child.id].nodes[child.currentLocation].position.x%160,0);
  await page.reload();await page.getByRole('heading',{name:'龙门城内',exact:true}).waitFor();assert.ok(await page.locator('.dm-cell-layer rect').count()>0);
+ // Paint multiple cells, save and inspect their independent properties.
+ await page.getByRole('tab',{name:'调整地图',exact:true}).click();
+ await page.getByRole('button',{name:'编辑格子',exact:true}).click();
+ const cp=moved.maps[child.id].nodes[child.currentLocation].position,key0=`${cp.x/160-1},${cp.y/160}`,key1=`${cp.x/160},${cp.y/160}`;
+ const cellScreen=async key=>page.locator(`[data-cell-key="${key}"]`).evaluate(e=>{const b=e.getBBox(),p=new DOMPoint(b.x+b.width/2,b.y+b.height/2).matrixTransform(e.getScreenCTM());return {x:p.x,y:p.y};});
+ const pickCell=async key=>{const p=await cellScreen(key);await page.mouse.click(p.x,p.y);};
+ await pickCell(key0);
+ await page.getByRole('combobox',{name:'格子区域类型',exact:true}).selectOption('suburb');
+ await page.getByRole('combobox',{name:'格子地形',exact:true}).selectOption('forest');
+ await page.getByRole('textbox',{name:'格子名称',exact:true}).fill('东郊');
+ await page.getByRole('textbox',{name:'格子说明',exact:true}).fill('城外树林');
+ await page.getByRole('button',{name:'应用到选中格子',exact:true}).click();
+ assert.equal((await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState())).maps[child.id].metadata.cells,undefined);
+ await page.getByRole('button',{name:'刷选格子',exact:true}).click();
+ const c0=await cellScreen(key0),c1=await cellScreen(key1);await page.mouse.move(c0.x,c0.y);await page.mouse.down();await page.mouse.move(c1.x,c1.y,{steps:12});await page.mouse.up();
+ assert.match(await page.locator('.dm-cell-selection').innerText(),/已选择 2 格/);
+ await page.getByRole('button',{name:'应用到选中格子',exact:true}).click();
+ await page.getByRole('button',{name:'保存地图',exact:true}).click();
+ let painted=await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState());assert.equal(painted.maps[child.id].metadata.cells[key1].name,'东郊');assert.deepEqual(painted.maps[child.id].nodes,moved.maps[child.id].nodes);
+ await page.getByRole('tab',{name:'地图规则',exact:true}).click();await page.getByRole('button',{name:'行政区域',exact:true}).click();
+ await page.getByRole('textbox',{name:'新增条目名称',exact:true}).fill('沧州');await page.getByRole('button',{name:'添加条目',exact:true}).click();
+ await page.getByRole('button',{name:'保存地图',exact:true}).click();
+ painted=await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState());const province=painted.maps[child.id].metadata.cellRules.regions[0].id;
+ await page.getByRole('tab',{name:'调整地图',exact:true}).click();await page.getByRole('button',{name:'编辑格子',exact:true}).click();await pickCell(key0);
+ await page.getByRole('combobox',{name:'格子行政归属',exact:true}).selectOption(province);await page.getByRole('button',{name:'应用到选中格子',exact:true}).click();await page.getByRole('button',{name:'保存地图',exact:true}).click();
+ await page.getByRole('tab',{name:'查看地图',exact:true}).click();await pickCell(key0);await page.getByText('行政归属：沧州',{exact:true}).waitFor();await page.getByText('城外树林',{exact:true}).waitFor();
+ await page.reload();await pickCell(key0);await page.getByText('行政归属：沧州',{exact:true}).waitFor();
  assert.deepEqual(errors,[]);console.log('PASS: real pointer drag/free drop, draft/save, compact forms, road catalogs, inline message windows with shared drafts, themes and AI source scope and custom API (local mock models).');
 }finally{await browser?.close();server.close();}
 
