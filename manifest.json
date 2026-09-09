@@ -7,7 +7,7 @@
   "js": "index.js",
   "css": "style.css",
   "author": "Dynamic Map Project",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "homePage": "https://github.com/agentgeleven-lab/sillytavern-dynamic-map",
   "auto_update": false
 }
