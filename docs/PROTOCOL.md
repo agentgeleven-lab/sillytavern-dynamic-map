@@ -121,3 +121,12 @@ Map.parentMap 引用上级地图；可选 Map.metadata.parentNode 引用该上�
 Map.metadata.generationLevel 记录最近生成层级（world/region/city/site/interior/custom），仅用于提示词范围，不决定形态或行政归属。生成时临时以目标地图构造输入，结果合并后恢复角色地图 ID。生成新子地图时只有通过校验的结果才加入草稿。导航修订号、草稿令牌及聊天令牌共同防止迟到响应错位应用。
 
 草稿提供 applyGeneration/undoGeneration，一份生成前快照仅在未发生后续编辑或保存时可撤销，所有窗口共用草稿检查。保存提交全部地图；角色地图变更也参与冲突检查。
+
+
+## v0.11.0 变量与状态栏适配
+
+公共接口新增 getIntegrationSummary、getIntegrationStatus、openCurrentLocation、requestMove。getIntegrationSummary 仅提供已绑定且已保存地图的摘要；关闭状态栏联动时返回 null。requestMove 接收 {请求ID,地图版本,地图ID,地点ID}，要求 allowMoves 开启且版本精确匹配当前 dynamicMapV1.updatedAt。调用原子的 setActiveMap + setCurrentLocation，不是批量任意状态修改。
+
+聊天变量「地图」只保存摘要，来源为“动态地图插件”。仅此命名空间由适配器刷新，不改变状态栏或其他变量。地图移动请求是独立输入；初始化与聊天切换时记录基线，避免重放旧请求。实际执行前验证聊天、版本、目标。默认不开启反向请求。状态栏适配组件通过 WorldStatusHudMapBridge.version=1 公布检测能力，不依赖 DOM 猜测。
+
+位置历史保存于 chatMetadata.dynamicMapPositionHistoryV1，records 按消息 extra.dynamic_map_message_id + swipe_id 标识，sequence 记录上次楼层顺序；只保存 mapId/nodeId，不进入模型变量。不含地图拓扑的历史快照。
