@@ -130,3 +130,10 @@ Map.metadata.generationLevel 记录最近生成层级（world/region/city/site/i
 聊天变量「地图」只保存摘要，来源为“动态地图插件”。仅此命名空间由适配器刷新，不改变状态栏或其他变量。地图移动请求是独立输入；初始化与聊天切换时记录基线，避免重放旧请求。实际执行前验证聊天、版本、目标。默认不开启反向请求。状态栏适配组件通过 WorldStatusHudMapBridge.version=1 公布检测能力，不依赖 DOM 猜测。
 
 位置历史保存于 chatMetadata.dynamicMapPositionHistoryV1，records 按消息 extra.dynamic_map_message_id + swipe_id 标识，sequence 记录上次楼层顺序；只保存 mapId/nodeId，不进入模型变量。不含地图拓扑的历史快照。
+
+
+## Native Tool Calling v0.12
+
+Optional adapter uses getContext().registerFunctionTool/unregisterFunctionTool, with shouldRegister gating and stealth:false. Query schema: {mapId?:string}. Update schema: {token:string,reason:string,operations:Operation[]} (1–30, total <=50000 characters). Every operation requires op/mapId/id. Node add/update accept name/description/type; add requires name. Edge add/update accept name/type/direction/distance/bidirectional; add also requires from/to. Remove and move accept only op/mapId/id. Unknown fields are rejected. Names and IDs are strings, type IDs must be in map catalogs; node descriptions and supplied text are bounded to 4000 characters. No executable code or arbitrary document replacement is accepted.
+
+Query tokens are ephemeral and invalidated by chat binding, committed state, draft revision or settings changes. AI draft ownership prevents overwriting manual drafts. Updates compile on a cloned, normalized document and perform layout and full protocol validation before the draft/commit boundary. No new dependency is added to core modules. Settings live in extensionSettings.dynamicMapTools (enabled/autoSave/allowDelete, all false by default). Tool results distinguish applied:true from pending draft; host persistence errors remain reported by the existing persistence adapter.
