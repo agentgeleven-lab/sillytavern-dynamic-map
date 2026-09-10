@@ -191,6 +191,14 @@ export function createPanel(store,persistence,preferences,options={}){
             form.append(el('p',(state.littleWhiteBox?'已检测到小白X 2.0':'未检测到小白X 2.0；聊天变量仍可供其他插件读取')+' · 状态栏：'+(state.statusHud?'已检测到':'未检测到')+' · '+state.message,'dm-integration-status'),button('重试地图变量同步',()=>void bridge.sync()));
             const help=field(form,'联动提示词（复制到你的世界书）',el('textarea'));help.readOnly=true;help.value='当前地图摘要（只读，不修改“地图”变量）：\n{{xbgetvar_yaml::地图}}\n只有剧情明确发生移动时，才在 <state> 中完整写入：\n地图移动请求: {"请求ID":"本次唯一编号","地图版本":摘要中的地图版本数字,"地图ID":"目标地图ID","地点ID":"目标地点ID"}\n</state>\n不得虚构 ID；未开启位置更新时请求不执行。位置更新仅记录叙事位置，不自动寻路或推进时间。';
         }
+        if(options.tools){
+            const tools=options.tools,state=tools.status();form.append(el('h3','AI 动态更新与 Tool Calling'));
+            for(const [key,label] of [['enabled','启用聊天中的地图工具'],['autoSave','自动保存 AI 地图更新'],['allowDelete','允许 AI 删除地点和道路']]){const toggle=field(form,label,input('','checkbox'));toggle.checked=state[key];toggle.onchange=()=>run(()=>{tools.configure({[key]:toggle.checked});render();});}
+            form.append(el('p',(state.registered?'地图工具已注册':'当前酒馆未提供工具注册接口')+' · '+(state.supported?'模型工具调用已启用':'请在酒馆 AI 响应配置中启用函数调用，并选择支持工具的模型'),'dm-help'));
+            form.append(el('p',state.message),button('刷新工具状态',render));
+            form.append(el('p','默认只生成草稿，检查后保存全部地图。自动保存开启后立即应用；人工编辑草稿会阻止 AI 覆盖。原生工具使用酒馆聊天模型，独立地图生成 API 仍用于生成页面。','dm-help'));
+            const prompt=field(form,'工具使用提示词（可复制到世界书）',el('textarea'));prompt.readOnly=true;prompt.value='剧情涉及位置、地点或道路变化时，先调用 dynamic_map_query 查询对应地图，再调用 dynamic_map_update 提交已确定的变化。复用已有 ID 和类型；不要编造距离、名称或新地点。需要新增地点时使用新的唯一 ID。仅在剧情明确到达后提交 move。一次提交相关变化，成功后不要重复调用；结果 applied=false 代表尚待用户保存，不要说已生效。不要同时使用地图移动请求变量重复移动。';
+        }
         form.append(el('h3','地图生成 API'));
         const config=apiSettings.snapshot();
         const use=field(form,'使用独立 API 生成地图',input('','checkbox'));use.checked=config.enabled;
