@@ -234,8 +234,21 @@ try{
  const requestResult=await page.evaluate(()=>{globalThis.LWB_StateV2={applyText(){}};const c=globalThis.SillyTavern.getContext(),d=globalThis.SillyTavernDynamicMap.getState();c.chatMetadata.variables.地图移动请求=JSON.stringify({请求ID:'browser-move',地图版本:c.chatMetadata.dynamicMapV1.updatedAt,地图ID:'world',地点ID:'qingyun_sect'});return d.activeMap;});
  await page.waitForFunction(()=>globalThis.SillyTavernDynamicMap.getState().activeMap==='world'&&globalThis.SillyTavernDynamicMap.getCurrentLocation()?.id==='qingyun_sect');
  await page.waitForFunction(()=>JSON.parse(globalThis.SillyTavern.getContext().chatMetadata.variables.地图).地点ID==='qingyun_sect');
+ // Invoke the registered native callbacks through a simulated host tool registry.
+ await page.evaluate(()=>{const original=globalThis.SillyTavern.getContext;globalThis.__mapTools={};globalThis.SillyTavern.getContext=()=>({...original(),registerFunctionTool:t=>globalThis.__mapTools[t.name]=t,unregisterFunctionTool:n=>delete globalThis.__mapTools[n],isToolCallingSupported:()=>true});});
+ await page.getByRole('checkbox',{name:'启用聊天中的地图工具',exact:true}).check();
+ await page.getByRole('tab',{name:'调整地图',exact:true}).click();await page.getByRole('button',{name:'放弃草稿',exact:true}).click();
+ const beforeTools=await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState());
+ const toolResult=await page.evaluate(async()=>{const t=globalThis.__mapTools,q=JSON.parse(await t.dynamic_map_query.action({mapId:'world'}));return JSON.parse(await t.dynamic_map_update.action({token:q.token,reason:'测试叙事移动',operations:[{op:'move',mapId:'world',id:'longmen_city'}]}));});
+ assert.equal(toolResult.ok,true);assert.equal(toolResult.applied,false);assert.deepEqual(await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState()),beforeTools);
+ await page.getByRole('button',{name:'保存全部地图调整',exact:true}).click();
+ assert.equal(await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getCurrentLocation().id),'longmen_city');
+ await page.getByRole('tab',{name:'设置',exact:true}).click();await page.getByRole('checkbox',{name:'自动保存 AI 地图更新',exact:true}).check();
+ const savedTool=await page.evaluate(async()=>{const t=globalThis.__mapTools,q=JSON.parse(await t.dynamic_map_query.action({mapId:'world'}));return JSON.parse(await t.dynamic_map_update.action({token:q.token,reason:'测试自动保存',operations:[{op:'move',mapId:'world',id:'qingyun_sect'}]}));});assert.equal(savedTool.applied,true);
+ await page.waitForFunction(()=>JSON.parse(globalThis.SillyTavern.getContext().chatMetadata.variables.地图).地点ID==='qingyun_sect');
  assert.deepEqual(errors,[]);console.log('PASS: real pointer drag/free drop, draft/save, compact forms, road catalogs, inline message windows with shared drafts, themes and AI source scope and custom API (local mock models).');
 }finally{await browser?.close();server.close();}
+
 
 
 
