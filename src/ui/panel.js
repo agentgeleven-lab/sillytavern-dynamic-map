@@ -1,3 +1,4 @@
+import { TEXT_PROMPT } from '../integrations/text-updates.js';
 import { mapChanges } from './map-presentation.js';
 import { TOOL_PROMPT, targetWorldbook, syncToolPrompt, inspectToolPrompt } from '../adapters/tool-lorebook.js';
 import { GENERATION_LEVELS, mapPath, mapChoices, locationPath, projectedLocation, generationScope, levelPrompt } from '../core/hierarchy.js';
@@ -209,18 +210,20 @@ export function createPanel(store,persistence,preferences,options={}){
         }
         if(options.tools){
             form=sections.get('tools');const tools=options.tools,state=tools.status();form.append(el('h3','AI 动态更新与 Tool Calling'));
-            for(const [key,label] of [['enabled','启用聊天中的地图工具'],['autoSave','自动保存 AI 地图更新'],['allowDelete','允许 AI 删除地点和道路']]){const toggle=field(form,label,input('','checkbox'));toggle.checked=state[key];toggle.onchange=()=>run(()=>{tools.configure({[key]:toggle.checked});render();});}
-            form.append(el('p',(state.registered?'地图工具已注册':'当前酒馆未提供工具注册接口')+' · '+(state.supported?'模型工具调用已启用':'请在酒馆 AI 响应配置中启用函数调用，并选择支持工具的模型'),'dm-help'));
-            form.append(el('p',state.message),button('刷新工具状态',render));
+            const mode=field(form,'更新方式',select([{id:'native',name:'原生工具调用'},{id:'text',name:'正文更新块（无需工具调用）'}],state.textMode?'text':'native'));mode.onchange=()=>run(()=>{tools.configure({textMode:mode.value==='text'});options.textUpdates?.reset();render();});
+            for(const [key,label] of [['enabled','启用聊天中的地图工具'],['autoSave','自动保存 AI 地图更新'],['allowDelete','允许 AI 删除地点和道路']]){const toggle=field(form,label,input('','checkbox'));toggle.checked=state[key];toggle.onchange=()=>run(()=>{tools.configure({[key]:toggle.checked});options.textUpdates?.reset();render();});}
+            form.append(el('p',state.textMode?(options.textUpdates?.status().supported?'正文模式可用，无需模型支持工具调用':'当前酒馆缺少正文模式所需接口'):(state.registered?'地图工具已注册':'当前酒馆未提供工具注册接口')+' · '+(state.supported?'模型工具调用已启用':'请在酒馆 AI 响应配置中启用函数调用，并选择支持工具的模型'),'dm-help'));
+            form.append(el('p',state.textMode?(options.textUpdates?.status().message??'尚未启用'):state.message),button('刷新工具状态',render));
             form.append(el('p','默认只生成草稿，检查后保存全部地图。自动保存开启后立即应用；人工编辑草稿会阻止 AI 覆盖。原生工具使用酒馆聊天模型，独立地图生成 API 仍用于生成页面。','dm-help'));
-            const prompt=field(form,'工具使用提示词（可复制到世界书）',el('textarea'));prompt.readOnly=true;prompt.value=TOOL_PROMPT;
+            const prompt=field(form,'工具使用提示词（可复制到世界书）',el('textarea'));prompt.readOnly=true;prompt.value=state.textMode?TEXT_PROMPT:TOOL_PROMPT;
+            if(state.textMode)form.append(el('p','启用后自动附加当前地图资料与格式规则，不额外请求模型。仅处理新生成的完整回复，续写不触发；更新块保留在消息原文中。若以前写入过工具提示词，请点击更新提示词替换旧规则。','dm-help'));
             const getContext=()=>globalThis.SillyTavern?.getContext?.()??{};
             let target;try{target=targetWorldbook(getContext());}catch(e){target=e.message;}
             form.append(el('p','目标：'+target+'。共享同一本世界书的角色会共用此条目。','dm-help'));
             const feedback=el('p','正在检查世界书提示词状态…');let promptBusy=false;form.append(feedback);
-            const apply=async remove=>{promptBusy=true;write.disabled=erase.disabled=true;feedback.textContent=remove?'正在删除提示词…':'正在写入提示词…';try{const result=await syncToolPrompt({getContext,remove});feedback.textContent=result.name+'：'+result.message;}catch(e){feedback.textContent=e.message;}finally{promptBusy=false;write.disabled=false;void inspect(false);}};
+            const apply=async remove=>{promptBusy=true;write.disabled=erase.disabled=true;feedback.textContent=remove?'正在删除提示词…':'正在写入提示词…';try{const result=await syncToolPrompt({getContext,remove,prompt:prompt.value});feedback.textContent=result.name+'：'+result.message;}catch(e){feedback.textContent=e.message;}finally{promptBusy=false;write.disabled=false;void inspect(false);}};
             const write=button('一键写入世界书',()=>void apply(false)),erase=button('删除已写入提示词',()=>void apply(true));form.append(write,erase);
-            async function inspect(show=true){try{const info=await inspectToolPrompt({getContext});if(promptBusy)return;write.textContent=info.exists?'更新提示词':'一键写入世界书';write.setAttribute('aria-label','一键写入世界书');erase.disabled=!info.exists;if(show)feedback.textContent=info.name+'：'+info.message;}catch(e){if(show&&!promptBusy)feedback.textContent=e.message;erase.disabled=true;}}
+            async function inspect(show=true){try{const info=await inspectToolPrompt({getContext,prompt:prompt.value});if(promptBusy)return;write.textContent=info.exists?'更新提示词':'一键写入世界书';write.setAttribute('aria-label','一键写入世界书');erase.disabled=!info.exists;if(show)feedback.textContent=info.name+'：'+info.message;}catch(e){if(show&&!promptBusy)feedback.textContent=e.message;erase.disabled=true;}}
             erase.disabled=true;form.append(button('检查世界书状态',()=>void inspect()));void inspect();
 
         }
