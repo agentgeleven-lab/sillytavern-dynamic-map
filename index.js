@@ -1,3 +1,4 @@
+import { createTextUpdates } from './src/integrations/text-updates.js';
 import { createMapTools } from './src/integrations/tool-calling.js';
 import { createVariableBridge } from './src/integrations/chat-variables.js';
 import { createDraftSession } from './src/core/draft.js';
@@ -33,6 +34,7 @@ export function initialize() {
     const integration=createVariableBridge({store,persistence,getContext:()=>globalThis.SillyTavern?.getContext?.()??{}});
     const shared = {integration,draft:createDraftSession(store,persistence),apiSettings:createApiSettings(localStorage,persistence.namespace)};
     shared.tools=createMapTools({store,draft:shared.draft,persistence,getContext:()=>globalThis.SillyTavern?.getContext?.()??{}});
+    shared.textUpdates=createTextUpdates({tools:shared.tools,getContext:()=>globalThis.SillyTavern?.getContext?.()??{},report(message){status=message;panel?.setStatus(message);for(const item of inlinePanels)item.setStatus(message);}});
     panel = createPanel(store, persistence, preferences, shared);
     const messageButtons = installMessageButtons(mount=>{
         const widget=createPanel(store,persistence,preferences,{...shared,mount,inline:true});
@@ -51,7 +53,7 @@ export function initialize() {
     const api = createPublicApi(store, panel.open, integration);
     globalThis.SillyTavernDynamicMap = api;
     instance = { api, destroy() {
-        shared.tools.destroy(); integration.destroy(); messageButtons.destroy(); panel.destroy(); shared.draft.destroy(); settings.remove();
+        shared.textUpdates.destroy(); shared.tools.destroy(); integration.destroy(); messageButtons.destroy(); panel.destroy(); shared.draft.destroy(); settings.remove();
         persistence.destroy();
         if (ctx?.event_types?.CHAT_CHANGED) ctx.eventSource.removeListener?.(ctx.event_types.CHAT_CHANGED, onChatChanged);
         if (globalThis.SillyTavernDynamicMap === api) delete globalThis.SillyTavernDynamicMap;
