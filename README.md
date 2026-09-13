@@ -1,4 +1,4 @@
-# SillyTavern 动态地图 · 0.14.0
+# SillyTavern 动态地图 · 0.14.1
 
 无第三方运行依赖、无需构建的地图悬浮窗。顶部六页：查看地图、调整地图、地图规则、AI生成地图、地图模板、设置。
 
@@ -269,3 +269,12 @@ AI 页新增「生成层级」：世界／大陆、国家／省份、城市／�
 历史消息、用户/系统消息、未完成块、重复块不会补执行；停止、流式错误、切换聊天、生成期间修改地图或设置后拒绝迟到结果。已有人工草稿受保护。续写、静默生成和模拟用户发言不触发正文更新。更新块保留在消息原文；本版没有隐藏或删除原文，也不回滚历史拓扑。
 
 接口参照 [SillyTavern 扩展事件文档](https://docs.sillytavern.app/for-contributors/writing-extensions/) 和 [当前宿主上下文](https://github.com/SillyTavern/SillyTavern/blob/release/public/scripts/st-context.js)。宿主需提供提示词注入与生成事件；不要求模型或服务商支持函数调用。自动测试与模拟宿主浏览器通过，未调用真实模型，格式遵循率仍需实测。
+
+
+## v0.14.1 一键添加隐藏正则
+
+在「设置 → AI 动态更新」选择正文更新块模式后，点击「一键添加隐藏正则」。它添加一条酒馆全局正则「动态地图 · 隐藏正文更新块」，只在 AI 回复显示时隐藏完整的 `<map_update>…</map_update>`，保留普通正文、消息原文与发送给模型的历史内容，不影响插件解析。未完成的块不隐藏。
+
+重复添加不会产生重复条目；自己的规则被修改或禁用时，再次添加恢复配置。「移除地图隐藏正则」只移除插件固定 ID 的规则，其他规则包括手动创建的同名规则保持原样。不开启已关闭的正则扩展、不改角色卡。点击后请求酒馆保存设置，已有消息请刷新聊天显示；正则管理页面也可能需要重新打开或刷新。
+
+实现对照 [SillyTavern 正则引擎](https://github.com/SillyTavern/SillyTavern/blob/release/public/scripts/extensions/regex/engine.js)：全局列表使用 extensionSettings.regex，AI_OUTPUT=2，markdownOnly=true、promptOnly=false。
