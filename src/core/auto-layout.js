@@ -16,7 +16,8 @@ export function autoLayout(map,{pinnedIds=[],preserveExisting=false}={}) {
     for(const id of ids){const n=map.nodes[id];sizes.set(id,rect(n));if(n.layout.pinned||preserveExisting&&finite(n.position))pins.add(id);}
     for(const id of pins)if(!map.nodes[id]||!finite(map.nodes[id].position))throw new Error('固定地点必须有有效位置');
     for(const e of edges){if(!adj.has(e.from)||!adj.has(e.to)||e.from===e.to)throw new Error('道路端点无效');adj.get(e.from).push(e.to);adj.get(e.to).push(e.from);if(e.metadata.directionLocked&&!DIRS.includes(e.direction))throw new Error('锁定道路需要有效的16方位');}
-    for(const e of edges)if(e.metadata.displayLength!=null&&(!Number.isFinite(e.metadata.displayLength)||e.metadata.displayLength<80||e.metadata.displayLength>2000))throw new Error('图上目标长度须为 80–2000');
+    // Preserve the geometry entering this run, rather than pulling roads to one length.
+    const targets=new Map(edges.map(e=>{const a=map.nodes[e.from].position,b=map.nodes[e.to].position;const length=finite(a)&&finite(b)?Math.hypot(b.x-a.x,b.y-a.y):0;return [e.id,length>=40?length:IDEAL];}));
     const components=[],seen=new Set();
     for(const root of ids){if(seen.has(root))continue;const list=[root];seen.add(root);for(let i=0;i<list.length;i++)for(const id of adj.get(list[i]))if(!seen.has(id)){seen.add(id);list.push(id);}components.push(list);}
     const move=(a,b,dx,dy)=>{const pa=pins.has(a),pb=pins.has(b),p=points.get(a),q=points.get(b);if(pa&&pb)return;const wa=pa?0:pb?1:.5,wb=pb?0:pa?1:.5;p.x-=dx*wa;p.y-=dy*wa;q.x+=dx*wb;q.y+=dy*wb;};
@@ -39,7 +40,7 @@ export function autoLayout(map,{pinnedIds=[],preserveExisting=false}={}) {
         for(const list of components){
             for(let i=0;i<list.length;i++)for(let j=i+1;j<list.length;j++){const a=list[i],b=list[j],p=points.get(a),q=points.get(b);let dx=q.x-p.x,dy=q.y-p.y;const len=Math.max(1,Math.hypot(dx,dy));if(!dx&&!dy)dx=1;const strength=Math.min(25,14000/(len*len));forces.get(a).x-=dx/len*strength;forces.get(a).y-=dy/len*strength;forces.get(b).x+=dx/len*strength;forces.get(b).y+=dy/len*strength;}
         }
-        for(const e of edges){const a=points.get(e.from),b=points.get(e.to),dx=b.x-a.x,dy=b.y-a.y,len=Math.max(1,Math.hypot(dx,dy)),ideal=e.metadata.displayLength??IDEAL,f=clamp((len-ideal)*.035,-15,15);forces.get(e.from).x+=dx/len*f;forces.get(e.from).y+=dy/len*f;forces.get(e.to).x-=dx/len*f;forces.get(e.to).y-=dy/len*f;
+        for(const e of edges){const a=points.get(e.from),b=points.get(e.to),dx=b.x-a.x,dy=b.y-a.y,len=Math.max(1,Math.hypot(dx,dy)),ideal=targets.get(e.id),f=clamp((len-ideal)*.035,-15,15);forces.get(e.from).x+=dx/len*f;forces.get(e.from).y+=dy/len*f;forces.get(e.to).x-=dx/len*f;forces.get(e.to).y-=dy/len*f;
             if(!e.metadata.directionLocked&&step<160){const i=DIRS.indexOf(e.direction);if(i>=0){const vx=Math.sin(i*ANGLE)*ideal-dx,vy=-Math.cos(i*ANGLE)*ideal-dy;forces.get(e.to).x+=vx*.015;forces.get(e.to).y+=vy*.015;forces.get(e.from).x-=vx*.015;forces.get(e.from).y-=vy*.015;}}
         }
         // Repel unrelated nodes from road interiors to reduce misleading pass-throughs.

@@ -139,39 +139,46 @@ export function connectionDetails(map, nodeId, methodId) {
 }
 
 export const SNAP_RADIUS = ROAD_LENGTH * 1.4;
-/** Any nearby node may be an anchor; far-away drops detach the node. */
-export function placementPlan(map, nodeId, pointer) {
+/** Default movement preserves topology; reconnect must be explicitly selected. */
+export function placementPlan(map, nodeId, pointer, mode='move') {
     if(!Number.isFinite(pointer.x)||!Number.isFinite(pointer.y))throw new Error('拖动坐标无效');
-    if(map.nodes[nodeId]?.layout.pinned)return {mode:'blocked',position:{x:pointer.x,y:pointer.y},removeIds:[],reason:'此地点已固定，请先在地点资料中取消固定位置'};
+    const base={position:{x:pointer.x,y:pointer.y},removeIds:[],reconnect:mode==='reconnect'};
+    if(map.nodes[nodeId]?.layout.pinned)return {...base,mode:'blocked',reason:'此地点已固定，请先在地点资料中取消固定位置'};
     const incident=map.edges.filter(e=>e.from===nodeId||e.to===nodeId);
-    const candidates=Object.values(map.nodes).filter(n=>n.id!==nodeId&&n.position.x!==null)
-        .map(n=>({node:n,distance:Math.hypot(n.position.x-pointer.x,n.position.y-pointer.y)})).filter(x=>x.distance<=SNAP_RADIUS).sort((a,b)=>a.distance-b.distance);
-    const nearest=candidates[0]?.node;
-    if(!nearest)return {mode:'free',position:{x:pointer.x,y:pointer.y},removeIds:incident.map(e=>e.id)};
-    const existing=incident.find(e=>e.from===nearest.id||e.to===nearest.id);
-    const requested=nearestDirection(nearest.position,pointer);
-    const directions=[...DIRECTIONS].sort((a,b)=>{
-        const distance=d=>{const p=positionFrom(nearest.position,d.id);return Math.hypot(p.x-pointer.x,p.y-pointer.y);};return distance(a)-distance(b);
-    });
-    for(const d of directions){
-        const plan={mode:'snap',anchorId:nearest.id,direction:d.id,requestedDirection:requested.id,adjusted:d.id!==requested.id,
-            edgeId:existing?.id??null,position:positionFrom(nearest.position,d.id),removeIds:incident.filter(e=>e.id!==existing?.id).map(e=>e.id)};
-        try{applyPlacement(structuredClone(map),nodeId,plan,'preview_edge');return plan;}catch{}
+    const nearest=Object.values(map.nodes).filter(n=>n.id!==nodeId&&Number.isFinite(n.position.x)&&Number.isFinite(n.position.y))
+        .map(node=>({node,distance:Math.hypot(node.position.x-pointer.x,node.position.y-pointer.y)})).filter(x=>x.distance<=SNAP_RADIUS).sort((a,b)=>a.distance-b.distance)[0];
+    let plan={...base,mode:'free',removeIds:base.reconnect?incident.map(e=>e.id):[]};
+    if(nearest){
+        const d=nearestDirection(nearest.node.position,pointer),radius=nearest.distance;
+        const existing=incident.find(e=>e.from===nearest.node.id||e.to===nearest.node.id);
+        plan={...base,mode:'snap',anchorId:nearest.node.id,direction:d.id,radius,edgeId:existing?.id??null,
+            position:{x:nearest.node.position.x+d.x*radius,y:nearest.node.position.y+d.y*radius},
+            removeIds:base.reconnect?incident.filter(e=>e.id!==existing?.id).map(e=>e.id):[]};
     }
-    return {mode:'blocked',anchorId:nearest.id,position:{x:pointer.x,y:pointer.y},removeIds:[],reason:'附近地点的 16 方位均不可用，请拖到更远的空白处'};
+    try{applyPlacement(structuredClone(map),nodeId,plan,'preview_edge');return plan;}
+    catch(error){return {...base,mode:'blocked',reason:error.message};}
 }
 export function applyPlacement(map,nodeId,plan,newEdgeId){
     if(plan.mode==='blocked')throw new Error(plan.reason);
-    const node=map.nodes[nodeId];if(!node)throw new Error('地点不存在');if(node.layout.pinned)throw new Error('此地点已固定，请先取消固定位置');
-    const kept=map.edges.find(e=>e.id===plan.edgeId);
-    map.edges=map.edges.filter(e=>e.from!==nodeId&&e.to!==nodeId);
-    if(plan.mode==='snap'){
-        const type=map.metadata.roadTypes?.[0]?.id??'road';
-        const edge=kept??{id:newEdgeId,from:plan.anchorId,to:nodeId,type,name:'',distance:null,bidirectional:true,discovered:true,metadata:{}};
-        edge.direction=edge.from===nodeId?opposite(plan.direction).id:plan.direction;map.edges.push(edge);
-        node.position={...plan.position};node.layout.fixed=true;layoutMap(map,plan.anchorId);
-    }else{node.position={...plan.position};node.layout.fixed=true;}
-    return map;
+    const next=structuredClone(map),node=next.nodes[nodeId];
+    if(!node)throw new Error('地点不存在');if(node.layout.pinned)throw new Error('此地点已固定，请先取消固定位置');
+    if(!Number.isFinite(plan.position.x)||!Number.isFinite(plan.position.y))throw new Error('拖动坐标无效');
+    if(Object.values(next.nodes).some(n=>n.id!==nodeId&&Math.hypot(n.position.x-plan.position.x,n.position.y-plan.position.y)<40))throw new Error('地点过近，请稍微拉开后放置');
+    if(plan.reconnect){
+        const kept=next.edges.find(e=>e.id===plan.edgeId);
+        next.edges=next.edges.filter(e=>e.from!==nodeId&&e.to!==nodeId);
+        if(plan.mode==='snap'){
+            if(!next.nodes[plan.anchorId]||plan.anchorId===nodeId)throw new Error('连接目标无效');
+            const edge=kept??{id:newEdgeId,from:plan.anchorId,to:nodeId,type:next.metadata.roadTypes?.[0]?.id??'road',name:'',distance:null,bidirectional:true,discovered:true,metadata:{}};
+            next.edges.push(edge);
+        }
+    }
+    node.position={x:plan.position.x,y:plan.position.y};node.layout.fixed=true;
+    for(const edge of next.edges)if(edge.from===nodeId||edge.to===nodeId){
+        const d=nearestDirection(next.nodes[edge.from].position,next.nodes[edge.to].position).id;
+        if(edge.metadata.directionLocked&&edge.direction!==d)throw new Error('道路方位已锁定，请先在路线连接中解除锁定');
+        edge.direction=d;
+    }
+    next.metadata.layout={...next.metadata.layout,mode:'auto'};
+    validateAutoPositions(next);Object.assign(map,next);return map;
 }
-
-
