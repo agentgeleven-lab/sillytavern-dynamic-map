@@ -48,3 +48,11 @@ export async function syncToolPrompt({getContext,remove=false,loadModule=()=>imp
   return {name,message:(remove?'已删除地图工具提示词':'已写入地图工具提示词')+warning};
  }finally{busy.delete(name);}
 }
+
+/** Read-only status for the prompt controls; does not populate or replace host cache. */
+export async function inspectToolPrompt({getContext,fetcher=fetch}){
+ const ctx=getContext(),name=targetWorldbook(ctx),identity=chatIdentity(ctx),metadata=ctx.chatMetadata;
+ if(typeof ctx.getRequestHeaders!=='function')throw Error('酒馆缺少世界书请求接口');
+ const abort=new AbortController(),timer=setTimeout(()=>abort.abort(),20000);
+ try{const response=await fetcher('/api/worldinfo/get',{method:'POST',headers:ctx.getRequestHeaders(),body:JSON.stringify({name}),signal:abort.signal,cache:'no-store'});if(!response.ok)throw Error('世界书状态读取失败');const book=await response.json();if(chatIdentity(getContext())!==identity||getContext().chatMetadata!==metadata||targetWorldbook(getContext())!==name)throw Error('聊天已切换，请重新检查');if(!book?.entries)throw Error('世界书格式无效');const owned=Object.values(book.entries).filter(e=>e?.dynamic_map_owner===PROMPT_OWNER);if(owned.length>1)throw Error('存在多个插件提示词，请先整理');const entry=owned[0];return {name,exists:!!entry,message:!entry?'未写入':entry.content!==TOOL_PROMPT?'提示词有更新':entry.disable?'已写入，但条目已禁用':'已写入，内容为最新版本'};}finally{clearTimeout(timer);}
+}
