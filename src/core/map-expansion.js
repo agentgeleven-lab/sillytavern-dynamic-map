@@ -7,7 +7,6 @@ export function recentMapChat(ctx) {
     const eligible=ctx.chat.filter(m=>!m.is_system && typeof m.mes==='string' && m.mes.trim());
     const messages=eligible.slice(-30).map(m=>({角色:m.is_user?'用户':'角色',名称:m.name||'',内容:m.mes}));
     if (!messages.length) throw new Error('当前聊天没有可读取的正文记录');
-    if (JSON.stringify(messages).length>60000) throw new Error('最近 30 条聊天超过 60000 字符，未截断内容，也未发送生成请求');
     return messages;
 }
 
