@@ -86,7 +86,7 @@ try{
  await page.getByRole('button',{name:'生成地图草稿',exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'生成地图草稿',exact:true}).isEnabled(),true);
  await page.evaluate(()=>globalThis.__resolveHung('{"invalid":"late"}'));assert.equal(await page.evaluate(()=>JSON.stringify(globalThis.SillyTavernDynamicMap.getState())),previousMap);
  // Total timeout also releases the UI when a host promise never settles.
- await page.getByRole('tab',{name:'设置',exact:true}).click();await page.getByRole('spinbutton',{name:'生成总超时（秒，两种模型均适用）',exact:true}).fill('10');await page.getByRole('button',{name:'保存 API 设置',exact:true}).click();
+ await page.getByRole('tab',{name:'设置',exact:true}).click();await page.getByRole('button',{name:'生成 API',exact:true}).click();await page.getByRole('spinbutton',{name:'生成总超时（秒，两种模型均适用）',exact:true}).fill('10');await page.getByRole('button',{name:'保存 API 设置',exact:true}).click();
  await page.getByRole('tab',{name:'AI生成地图',exact:true}).click();await page.getByRole('button',{name:'生成地图草稿',exact:true}).click();
  await page.locator('.dm-generation-progress').filter({hasText:'生成总等待超时'}).waitFor({timeout:15000});assert.equal(await page.getByRole('button',{name:'生成地图草稿',exact:true}).isEnabled(),true);
  await page.evaluate(()=>globalThis.SillyTavern.getContext=globalThis.__originalGetContext);
@@ -94,7 +94,7 @@ try{
  await page.getByRole('tab',{name:'查看地图',exact:true}).click();await page.getByRole('heading',{name:'自定地图名称',exact:true}).waitFor();
  // Independent API works without the host generation method and keeps keys out of storage.
  await page.getByRole('tab',{name:'设置',exact:true}).click();
- await page.getByRole('checkbox',{name:'使用独立 API 生成地图',exact:true}).check();
+ await page.getByRole('button',{name:'生成 API',exact:true}).click();await page.getByRole('checkbox',{name:'使用独立 API 生成地图',exact:true}).check();
  await page.getByRole('textbox',{name:'API 地址',exact:true}).fill(`http://127.0.0.1:${server.address().port}/v1`);
  await page.getByLabel('API 密钥',{exact:true}).fill('browser-test-only-key');
  await page.getByRole('textbox',{name:'模型名称',exact:true}).fill('custom-test-model');
@@ -107,7 +107,7 @@ try{
  const customMaterial=JSON.parse(customRequests[0].body.messages[1].content);assert.deepEqual(customMaterial.设定素材.世界书.map(b=>b.名称),['bound','enabled']);
  assert.ok(!(await page.evaluate(()=>JSON.stringify({...localStorage}))).includes('browser-test-only-key'));
  await page.getByRole('tab',{name:'查看地图',exact:true}).click();assert.equal(await page.getByRole('heading',{name:'独立 API 测试地图',exact:true}).count(),0);
- await page.reload();await page.getByRole('tab',{name:'设置',exact:true}).click();assert.equal(await page.getByLabel('API 密钥',{exact:true}).inputValue(),'');
+ await page.reload();await page.getByRole('tab',{name:'设置',exact:true}).click();await page.getByRole('button',{name:'生成 API',exact:true}).click();assert.equal(await page.getByLabel('API 密钥',{exact:true}).inputValue(),'');
  assert.equal(await page.getByRole('textbox',{name:'模型名称',exact:true}).inputValue(),'custom-test-model');
  await page.evaluate(()=>{
  const original=globalThis.SillyTavern.getContext;
@@ -118,7 +118,7 @@ try{
   return JSON.stringify({nodes:{new_inn:createNode('new_inn','新驿站',{type:m.metadata.nodeTypes[0].id})},edges:[createEdge('new_inn_road',root,'new_inn',{direction:'east',type:m.metadata.roadTypes[0].id,name:'驿道',distance:12})]});
  }});
  });
- await page.getByRole('tab',{name:'设置',exact:true}).click();await page.getByRole('checkbox',{name:'使用独立 API 生成地图',exact:true}).uncheck();await page.getByRole('button',{name:'保存 API 设置',exact:true}).click();
+ await page.getByRole('tab',{name:'设置',exact:true}).click();await page.getByRole('button',{name:'生成 API',exact:true}).click();await page.getByRole('checkbox',{name:'使用独立 API 生成地图',exact:true}).uncheck();await page.getByRole('button',{name:'保存 API 设置',exact:true}).click();
  await page.getByRole('tab',{name:'AI生成地图',exact:true}).click();
  assert.equal(await page.getByRole('checkbox',{name:'为道路生成距离',exact:true}).isChecked(),false);
  await page.getByRole('checkbox',{name:'为道路生成距离',exact:true}).check();
@@ -230,20 +230,20 @@ try{
   await page.getByRole('button',{name:'打开当前位置地图',exact:true}).click();assert.equal(await page.evaluate(()=>globalThis.__hudOpenedMap),true);await page.getByRole('heading',{name:withChild.maps[withChild.activeMap].name,exact:true}).waitFor();
   await page.evaluate(()=>globalThis.__mapWidget.destroy());
  }
- await page.getByRole('tab',{name:'设置',exact:true}).click();await page.getByRole('checkbox',{name:'允许小白X提交位置更新',exact:true}).check();
+ await page.getByRole('tab',{name:'设置',exact:true}).click();await page.getByRole('button',{name:'变量与状态栏',exact:true}).click();await page.getByRole('checkbox',{name:'允许小白X提交位置更新',exact:true}).check();
  const requestResult=await page.evaluate(()=>{globalThis.LWB_StateV2={applyText(){}};const c=globalThis.SillyTavern.getContext(),d=globalThis.SillyTavernDynamicMap.getState();c.chatMetadata.variables.地图移动请求=JSON.stringify({请求ID:'browser-move',地图版本:c.chatMetadata.dynamicMapV1.updatedAt,地图ID:'world',地点ID:'qingyun_sect'});return d.activeMap;});
  await page.waitForFunction(()=>globalThis.SillyTavernDynamicMap.getState().activeMap==='world'&&globalThis.SillyTavernDynamicMap.getCurrentLocation()?.id==='qingyun_sect');
  await page.waitForFunction(()=>JSON.parse(globalThis.SillyTavern.getContext().chatMetadata.variables.地图).地点ID==='qingyun_sect');
  // Invoke the registered native callbacks through a simulated host tool registry.
  await page.evaluate(()=>{const original=globalThis.SillyTavern.getContext;globalThis.__mapTools={};globalThis.SillyTavern.getContext=()=>({...original(),registerFunctionTool:t=>globalThis.__mapTools[t.name]=t,unregisterFunctionTool:n=>delete globalThis.__mapTools[n],isToolCallingSupported:()=>true});});
- await page.getByRole('checkbox',{name:'启用聊天中的地图工具',exact:true}).check();
+ await page.getByRole('button',{name:'AI 动态更新',exact:true}).click();await page.getByRole('checkbox',{name:'启用聊天中的地图工具',exact:true}).check();
  await page.getByRole('tab',{name:'调整地图',exact:true}).click();await page.getByRole('button',{name:'放弃草稿',exact:true}).click();
  const beforeTools=await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState());
  const toolResult=await page.evaluate(async()=>{const t=globalThis.__mapTools,q=JSON.parse(await t.dynamic_map_query.action({mapId:'world'}));return JSON.parse(await t.dynamic_map_update.action({token:q.token,reason:'测试叙事移动',operations:[{op:'move',mapId:'world',id:'longmen_city'}]}));});
  assert.equal(toolResult.ok,true);assert.equal(toolResult.applied,false);assert.deepEqual(await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getState()),beforeTools);
  await page.getByRole('button',{name:'保存全部地图调整',exact:true}).click();
  assert.equal(await page.evaluate(()=>globalThis.SillyTavernDynamicMap.getCurrentLocation().id),'longmen_city');
- await page.getByRole('tab',{name:'设置',exact:true}).click();await page.getByRole('checkbox',{name:'自动保存 AI 地图更新',exact:true}).check();
+ await page.getByRole('tab',{name:'设置',exact:true}).click();await page.getByRole('button',{name:'AI 动态更新',exact:true}).click();await page.getByRole('checkbox',{name:'自动保存 AI 地图更新',exact:true}).check();
  const savedTool=await page.evaluate(async()=>{const t=globalThis.__mapTools,q=JSON.parse(await t.dynamic_map_query.action({mapId:'world'}));return JSON.parse(await t.dynamic_map_update.action({token:q.token,reason:'测试自动保存',operations:[{op:'move',mapId:'world',id:'qingyun_sect'}]}));});assert.equal(savedTool.applied,true);
  await page.waitForFunction(()=>JSON.parse(globalThis.SillyTavern.getContext().chatMetadata.variables.地图).地点ID==='qingyun_sect');
  assert.deepEqual(errors,[]);console.log('PASS: real pointer drag/free drop, draft/save, compact forms, road catalogs, inline message windows with shared drafts, themes and AI source scope and custom API (local mock models).');
