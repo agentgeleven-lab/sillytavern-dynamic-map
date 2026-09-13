@@ -40,10 +40,8 @@ test('250-node graph completes with no overlap using final placement fallback',(
  const m=make(250,Array.from({length:249},(_,i)=>[i,i+1]));autoLayout(m);separated(m);assert.equal(m.edges.length,249);
 });
 
-test('per-road display length changes geometry without changing travel data and survives save',()=>{
- const a=make(2,[[0,1]]),b=structuredClone(a);a.edges[0].metadata.displayLength=200;b.edges[0].metadata.displayLength=700;
- autoLayout(a);autoLayout(b);const length=m=>Math.hypot(m.nodes.n0.position.x-m.nodes.n1.position.x,m.nodes.n0.position.y-m.nodes.n1.position.y);
- assert.ok(length(b)>length(a)+350);assert.equal(b.edges[0].distance,a.edges[0].distance);assert.equal(b.edges[0].name,a.edges[0].name);
- const before=structuredClone(b);layoutMap(b);assert.deepEqual(b,before);
- for(const value of [-1,0,Infinity,2001,'300']){const bad=make(2,[[0,1]]);bad.edges[0].metadata.displayLength=value;const prior=structuredClone(bad);assert.throws(()=>autoLayout(bad),/目标长度/);assert.deepEqual(bad,prior);}
+test('automatic layout retains different existing road scales and ignores obsolete targets',()=>{
+ const m=make(3,[[0,1],[1,2]]);m.nodes.n0.position={x:0,y:0};m.nodes.n1.position={x:200,y:0};m.nodes.n2.position={x:1000,y:0};m.edges[1].metadata.displayLength=160;
+ const distances=m.edges.map(e=>e.distance);autoLayout(m);const length=e=>Math.hypot(m.nodes[e.from].position.x-m.nodes[e.to].position.x,m.nodes[e.from].position.y-m.nodes[e.to].position.y);
+ assert.ok(length(m.edges[1])>length(m.edges[0])*2.5);assert.deepEqual(m.edges.map(e=>e.distance),distances);const before=structuredClone(m);layoutMap(m);assert.deepEqual(m,before);
 });

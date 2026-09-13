@@ -6,18 +6,18 @@ import { placementPlan, applyPlacement, ROAD_LENGTH } from '../src/core/spatial.
 import { collectMapSources } from '../src/adapters/sources.js';
 import { createPreferences } from '../src/ui/preferences.js';
 test('free drop detaches roads and preserves the precise pointer position',()=>{
- const m=createDemoDocument().maps.world,plan=placementPlan(m,'longmen_city',{x:950,y:800});assert.equal(plan.mode,'free');applyPlacement(m,'longmen_city',plan,'new');assert.deepEqual(m.nodes.longmen_city.position,{x:950,y:800});assert.equal(m.edges.length,0);assert.equal(Object.keys(m.nodes).length,3);
+ const m=createDemoDocument().maps.world,plan=placementPlan(m,'longmen_city',{x:950,y:800},'reconnect');assert.equal(plan.mode,'free');applyPlacement(m,'longmen_city',plan,'new');assert.deepEqual(m.nodes.longmen_city.position,{x:950,y:800});assert.equal(m.edges.length,0);assert.equal(Object.keys(m.nodes).length,3);
 });
 test('an unconnected nearby location becomes the anchor and gets a new road',()=>{
  const m=createDemoDocument().maps.world;m.nodes.remote=createNode('remote','新地点',{position:{x:900,y:600}});
- const p=placementPlan(m,'longmen_city',{x:1000,y:600});assert.equal(p.anchorId,'remote');applyPlacement(m,'longmen_city',p,'fresh');assert.equal(m.edges.length,1);assert.equal(m.edges[0].id,'fresh');assert.equal(m.nodes.longmen_city.position.x,900+ROAD_LENGTH);
+ const p=placementPlan(m,'longmen_city',{x:1000,y:600},'reconnect');assert.equal(p.anchorId,'remote');applyPlacement(m,'longmen_city',p,'fresh');assert.equal(m.edges.length,1);assert.equal(m.edges[0].id,'fresh');assert.equal(m.nodes.longmen_city.position.x,1000);
 });
-test('an occupied compass slot previews an available slot that survives commit',()=>{
+test('reconnection keeps radial distance rather than using a fixed compass slot',()=>{
  const m=createDemoDocument().maps.world,city=m.nodes.longmen_city.position;
- const p=placementPlan(m,'qingyun_sect',{x:city.x+55,y:city.y});assert.equal(p.anchorId,'longmen_city');assert.equal(p.adjusted,true);assert.notEqual(p.direction,'east');const expected={...p.position};applyPlacement(m,'qingyun_sect',p,'unused');assert.deepEqual(m.nodes.qingyun_sect.position,expected);
+ const p=placementPlan(m,'qingyun_sect',{x:city.x-90,y:city.y},'reconnect');assert.equal(p.anchorId,'longmen_city');assert.equal(p.direction,'west');const expected={...p.position};applyPlacement(m,'qingyun_sect',p,'unused');assert.deepEqual(m.nodes.qingyun_sect.position,expected);assert.equal(Math.hypot(expected.x-city.x,expected.y-city.y),90);
 });
 test('retained one-way road preserves type and direction relative to its original endpoints',()=>{
- const m=createDemoDocument().maps.world;m.edges[0].bidirectional=false;const q=m.nodes.qingyun_sect.position;const p=placementPlan(m,'longmen_city',{x:q.x+100,y:q.y});applyPlacement(m,'longmen_city',p,'unused');assert.equal(m.edges[0].bidirectional,false);assert.equal(m.edges[0].type,'path');assert.equal(m.edges[0].direction,'west');
+ const m=createDemoDocument().maps.world;m.edges[0].bidirectional=false;const q=m.nodes.qingyun_sect.position;const p=placementPlan(m,'longmen_city',{x:q.x+100,y:q.y},'reconnect');applyPlacement(m,'longmen_city',p,'unused');assert.equal(m.edges[0].bidirectional,false);assert.equal(m.edges[0].type,'path');assert.equal(m.edges[0].direction,'west');
 });
 function sourceFixture(){
  const calls=[];const ctx={characterId:0,characters:[{avatar:'hero.png',data:{name:'测试角色',description:'卡片描述',extensions:{world:'bound'}}}],chatMetadata:{world_info:'chat'}};
@@ -43,5 +43,17 @@ test('road catalog preserves legacy custom types during migration',async()=>{
 });
 
 test('free placement copies coordinates exposed as DOMPoint-style getters',()=>{
- const m=createDemoDocument().maps.world;class Point{get x(){return 950;}get y(){return 800;}}const plan=placementPlan(m,'longmen_city',new Point());applyPlacement(m,'longmen_city',plan,'new');assert.deepEqual(m.nodes.longmen_city.position,{x:950,y:800});
+ const m=createDemoDocument().maps.world;class Point{get x(){return 950;}get y(){return 800;}}const plan=placementPlan(m,'longmen_city',new Point(),'reconnect');applyPlacement(m,'longmen_city',plan,'new');assert.deepEqual(m.nodes.longmen_city.position,{x:950,y:800});
+});
+
+test('default drag preserves all road data and other positions at a long distance',()=>{
+ const m=createDemoDocument().maps.world,edges=structuredClone(m.edges),other=structuredClone(m.nodes.qingyun_sect.position);
+ const p=placementPlan(m,'longmen_city',{x:1500,y:800});assert.deepEqual(p.removeIds,[]);applyPlacement(m,'longmen_city',p,'unused');
+ assert.equal(m.edges.length,edges.length);for(let i=0;i<edges.length;i++)for(const key of ['id','from','to','distance','name','type','bidirectional'])assert.deepEqual(m.edges[i][key],edges[i][key]);assert.deepEqual(m.nodes.qingyun_sect.position,other);
+});
+test('nearby default movement keeps radius without adding a connection',()=>{
+ const m=createDemoDocument().maps.world;m.nodes.remote=createNode('remote','新地点',{position:{x:900,y:600}});const p=placementPlan(m,'longmen_city',{x:1020,y:620});assert.equal(p.mode,'snap');assert.ok(Math.abs(Math.hypot(p.position.x-900,p.position.y-600)-Math.hypot(120,20))<.001);applyPlacement(m,'longmen_city',p,'unused');assert.ok(!m.edges.some(e=>e.from==='remote'||e.to==='remote'));
+});
+test('blocked overlapping or locked moves are atomic',()=>{
+ const m=createDemoDocument().maps.world;m.edges[0].metadata.directionLocked=true;const before=structuredClone(m);const p=placementPlan(m,'longmen_city',{x:1500,y:800});assert.equal(p.mode,'blocked');assert.throws(()=>applyPlacement(m,'longmen_city',p,'unused'));assert.deepEqual(m,before);
 });
