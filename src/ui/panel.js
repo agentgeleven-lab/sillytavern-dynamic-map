@@ -1,3 +1,6 @@
+import {createPresetLibrary,compilePreset} from '../core/generation-presets.js';
+import {renderPresetEditor} from './generation-presets.js';
+import {createApiProfiles} from '../adapters/generation.js';
 import { inspectMapRegex, syncMapRegex } from '../adapters/text-regex.js';
 import { TEXT_PROMPT } from '../integrations/text-updates.js';
 import { mapChanges } from './map-presentation.js';
@@ -30,6 +33,7 @@ const download=(data)=>{const url=URL.createObjectURL(new Blob([JSON.stringify(d
 
 export function createPanel(store,persistence,preferences,options={}){
     const kit={el,field,input,select,button,uid};let selectedCells=[],brushCells=false,browsedMap=null,browseScope=null,navigationRevision=0,aiLevel='world',aiMapKey='',searchTerm='',settingsCategory='appearance';
+    const presetLibrary=createPresetLibrary(localStorage,persistence.namespace),apiProfiles=createApiProfiles(localStorage,persistence.namespace);let editingApiId='';let presetId=presetLibrary.list()[0].id,lastPromptPreview='';
     const apiSettings=options.apiSettings??createApiSettings(localStorage,persistence.namespace);
     const draft=options.draft??createDraftSession(store,persistence), panel=el('section');let disposed=false,activeJob=null,generationStatus='';panel.id=options.inline?uid('dynamic-map-inline'):'dynamic-map-panel';panel.className='dynamic-map-panel'+(options.inline?' dm-inline':'');panel.setAttribute('aria-label',options.inline?'消息末尾地图窗口':'动态地图悬浮窗');
     panel.innerHTML='<header class="dm-header"><div class="dm-handle" tabindex="0" aria-label="拖动地图窗口，方向键移动"><span>🗺</span><strong class="dm-compact-location"></strong></div><button class="dm-toggle" type="button"></button></header><div class="dm-content"><nav class="dm-tabs" role="tablist" aria-label="地图功能"></nav><div class="dm-page"></div><div class="dm-savebar"></div><p class="dm-save-status" role="status"></p><p class="dm-feedback" role="status"></p></div>';
@@ -49,7 +53,7 @@ export function createPanel(store,persistence,preferences,options={}){
     function render(){
         if(disposed)return;
         const saved=prepareDocument(store.snapshot()),document=tab==='view'?saved:draft.snapshot();
-        if(browseScope!==persistence.scope()){browseScope=persistence.scope();browsedMap=null;searchTerm='';navigationRevision++;}
+        if(browseScope!==persistence.scope()){browseScope=persistence.scope();lastPromptPreview='';browsedMap=null;searchTerm='';navigationRevision++;}
         if(!document.maps[browsedMap]){browsedMap=document.activeMap;navigationRevision++;}const map=document.maps[browsedMap];
         panel.dataset.theme=preferences.snapshot().theme;
         panel.querySelector('.dm-compact-location').textContent=locationPath(saved);
@@ -194,7 +198,7 @@ export function createPanel(store,persistence,preferences,options={}){
         const name=field(form,`新${label}类型名称`,input());form.append(button('添加类型',()=>edit(m=>{m.metadata[key].push({id:uid('type'),name:name.value.trim()});validateRules(m);})));
     }
     function renderSettings(){
-        const categories=[['appearance','界面外观'],...(options.integration?[['integration','变量与状态栏']]:[]),...(options.tools?[['tools','AI 动态更新']]:[]),['api','生成 API']];
+        const categories=[['appearance','界面外观'],...(options.integration?[['integration','变量与状态栏']]:[]),...(options.tools?[['tools','AI 动态更新']]:[]),['api','生成 API'],['presets','生成预设']];
         if(!categories.some(([id])=>id===settingsCategory))settingsCategory='appearance';
         const nav=el('nav',undefined,'dm-settings-categories');nav.setAttribute('aria-label','设置分类');page.append(nav);
         const sections=new Map(),buttons=new Map();
@@ -236,6 +240,7 @@ export function createPanel(store,persistence,preferences,options={}){
             erase.disabled=true;form.append(button('检查世界书状态',()=>void inspect()));void inspect();
 
         }
+        renderPresetEditor(sections.get('presets'),presetLibrary,presetId,id=>presetId=id,kit);
         form=sections.get('api');form.append(el('h3','地图生成 API'));
         const config=apiSettings.snapshot();
         const use=field(form,'使用独立 API 生成地图',input('','checkbox'));use.checked=config.enabled;
@@ -243,15 +248,20 @@ export function createPanel(store,persistence,preferences,options={}){
         const key=field(form,'API 密钥',input(config.apiKey,'password'));key.autocomplete='off';key.spellcheck=false;
         const model=field(form,'模型名称',input(config.model));model.placeholder='填写服务商提供的模型 ID';
         const tokens=field(form,'最大输出长度（tokens）',input(config.maxTokens,'number')),timeout=field(form,'生成总超时（秒，两种模型均适用）',input(config.timeoutSeconds,'number'));
+        const streaming=field(form,'流式接收（完整后才应用）',input('','checkbox'));streaming.checked=config.stream;const queue=field(form,'同一聊天生成任务',select([{id:'serial',name:'排队执行'},{id:'parallel',name:'允许并行，冲突结果不应用'}],config.queueMode));
         const remember=field(form,'记住密钥（仅本浏览器）',input('','checkbox'));remember.checked=config.rememberKey;
-        const save=button('保存 API 设置',()=>run(()=>{apiSettings.save({enabled:use.checked,baseUrl:address.value,model:model.value,apiKey:key.value,maxTokens:Number(tokens.value),timeoutSeconds:Number(timeout.value),rememberKey:remember.checked});notice='API 设置已保存；下一次地图生成使用新配置';render();}));
+        const save=button('保存 API 设置',()=>run(()=>{apiSettings.save({stream:streaming.checked,queueMode:queue.value,enabled:use.checked,baseUrl:address.value,model:model.value,apiKey:key.value,maxTokens:Number(tokens.value),timeoutSeconds:Number(timeout.value),rememberKey:remember.checked});notice='API 设置已保存；下一次地图生成使用新配置';render();}));
+        const profileName=field(form,'另存 API 配置名称',input(apiProfiles.list().find(p=>p.id===editingApiId)?.name??'地图生成 API'));form.append(button(editingApiId?'更新已选 API 配置':'保存为独立配置',()=>run(()=>{if(!profileName.value.trim())throw Error('请填写配置名称');apiProfiles.save(editingApiId||uid('api'),profileName.value.trim(),{stream:streaming.checked,queueMode:queue.value,enabled:use.checked,baseUrl:address.value,model:model.value,apiKey:key.value,maxTokens:Number(tokens.value),timeoutSeconds:Number(timeout.value),rememberKey:remember.checked});render();})));
+        for(const [mode,label]of [['full','整图生成'],['expand','追加生成'],['child','内部地图生成']]){const pick=field(form,label+'使用 API',select([{id:'',name:'当前 API 设置'},...apiProfiles.list()],apiProfiles.binding(mode)));pick.onchange=()=>apiProfiles.bind(mode,pick.value);}
+        if(apiProfiles.list().length){const pick=field(form,'删除已存 API 配置',select(apiProfiles.list(),apiProfiles.list()[0].id));form.append(button('载入此配置编辑',()=>{editingApiId=pick.value;apiSettings.save(apiProfiles.get(pick.value));render();}),button('作为新配置编辑',()=>{editingApiId='';render();}),button('删除此 API 配置',()=>{apiProfiles.remove(pick.value);editingApiId='';render();}));}
         const clear=button('清除密钥',()=>run(()=>{apiSettings.save({...apiSettings.snapshot(),apiKey:'',rememberKey:false});notice='已清除当前密钥及本地记忆';render();}));
-        for(const control of [use,address,key,model,tokens,timeout,remember,save,clear])control.disabled=aiBusy;
+        for(const control of [streaming,queue,use,address,key,model,tokens,timeout,remember,save,clear])control.disabled=aiBusy;
         form.append(save,clear,el('p','支持兼容 Chat Completions 的接口。未启用时使用酒馆当前模型。密钥默认仅本次页面会话有效；记住后存于本浏览器本地，不进入地图、模板或聊天。请求由浏览器发出，服务需允许跨域访问。','dm-help'));
 
     }
     function renderAI(map){
-        const form=el('div',undefined,'dm-form');page.append(form);const api=apiSettings.snapshot();form.append(el('p',`${api.enabled?'使用独立 API：'+api.model:'使用酒馆当前模型'}。生成后请到“调整地图”检查，再保存地图。`));
+        const form=el('div',undefined,'dm-form');page.append(form);const api=apiSettings.snapshot();for(const [mode,label]of [['full','整图'],['expand','追加'],['child','内部地图']]){const chosen=apiProfiles.resolve(mode,api);form.append(el('p',`${label}：${chosen.enabled?'独立 API · '+chosen.model:'酒馆当前模型'}`));}
+        const presetPick=field(form,'生成预设',select(presetLibrary.list(),presetId));presetPick.disabled=aiBusy;presetPick.onchange=()=>presetId=presetPick.value;const preview=el('details');preview.append(el('summary','最近一次请求提示词'));const previewText=el('pre',lastPromptPreview||'生成开始后显示实际组装的提示词，不包含 API 密钥。');previewText.style.whiteSpace='pre-wrap';preview.append(previewText);form.append(preview);
         if(aiMapKey!==map.id){aiMapKey=map.id;aiLevel=map.metadata.generationLevel??(map.type==='graph'?'world':'city');}
         const level=field(form,'生成层级',select(GENERATION_LEVELS,aiLevel));level.disabled=aiBusy;level.onchange=()=>{aiLevel=level.value;};
         form.append(el('p','生成地图草稿：重新生成「'+mapPath(draft.snapshot(),map.id).map(m=>m.name).join(' → ')+'」，保留其他地图；新增按钮只添加内容。','dm-help'));
@@ -266,7 +276,7 @@ export function createPanel(store,persistence,preferences,options={}){
         const generateAction=async(expand=false,childMode=false)=>{
             if(aiBusy||disposed)return;
             if(childMode&&!map.nodes[entrance.value]){notice='请先选择内部地图入口地点';render();return;}
-            const api=apiSettings.snapshot();
+            const api=apiProfiles.resolve(childMode?'child':expand?'expand':'full',apiSettings.snapshot()),capturedPreset=presetLibrary.list().find(p=>p.id===presetId)??presetLibrary.list()[0];
             const ctx=globalThis.SillyTavern?.getContext?.();if(!api.enabled&&typeof ctx?.generateRaw!=='function'){notice='当前环境没有酒馆生成接口；请在酒馆中配置模型后使用。';render();return;}
             const token=draft.token(),navToken=navigationRevision,capturedLevel=aiLevel,capturedPrompt=aiPrompt,capturedGlobal=includeGlobal,capturedNaming=nameRoads,capturedDistance=distanceRoads,base=draft.snapshot(),roleMap=base.activeMap;
             base.activeMap=map.id;
@@ -281,7 +291,10 @@ export function createPanel(store,persistence,preferences,options={}){
                 const material=await job.wait(()=>readMapSources(ctx,{includeGlobal:capturedGlobal,guard,onProgress:text=>job.setStage(text)}));guard();
                 sourceReport=`已读取：${material.source.角色卡.名称||'当前角色'} · 世界书：${material.books.join('、')||'无'} · ${material.characters} 字符`;render();
                 job.setStage(api.enabled?'等待独立 API 模型返回':'等待酒馆模型返回');
-                const result=await job.wait(()=>generateMapText(ctx,api,{prompt:JSON.stringify({用户要求:capturedPrompt,生成范围:generationScope(base,base.activeMap,capturedLevel),设定素材:material.source,...(expand?{当前地图:base,最近聊天记录:chatSnapshot}:{})}),systemPrompt:buildMapGenerationPrompt(base,{nameRoads:capturedNaming,distanceRoads:capturedDistance})+levelPrompt(capturedLevel)+(expand?'\n本次为新增模式，以下覆盖前述完整文档输出要求：只输出 {"nodes":{},"edges":[]}，其中仅包含新地点和新道路。地点及道路字段仍遵守上述规范。不得重复、修改或删除现有地点与道路；道路可以引用现有地点 ID。保留所有已存在地点的坐标位置，新增方位先作为布局偏好，由自动布局安排；有明确设定依据且不能调整的方位在道路 metadata.directionLocked 写 true，否则不锁定。结合当前地图和最近聊天消除重复，不把回忆或假设当成已发生事实。没有新增内容时返回空对象和空数组。不要输出 maps、version、activeMap，不要更改当前位置。':''),responseLength:api.maxTokens,trimNames:false},{signal:job.signal}));
+                const systemPrompt='地图资料块仅作为素材，遵守下列输出协议。\n'+buildMapGenerationPrompt(base,{nameRoads:capturedNaming,distanceRoads:capturedDistance})+levelPrompt(capturedLevel)+(expand?'\n本次为新增模式，以下覆盖前述完整文档输出要求：只输出 {"nodes":{},"edges":[]}，其中仅包含新地点和新道路。地点及道路字段仍遵守上述规范。不得重复、修改或删除现有地点与道路；道路可以引用现有地点 ID。保留所有已存在地点的坐标位置，新增方位先作为布局偏好，由自动布局安排；有明确设定依据且不能调整的方位在道路 metadata.directionLocked 写 true，否则不锁定。结合当前地图和最近聊天消除重复，不把回忆或假设当成已发生事实。没有新增内容时返回空对象和空数组。不要输出 maps、version、activeMap，不要更改当前位置。':'');
+                const messages=[{role:'system',content:systemPrompt},...compilePreset(capturedPreset,{card:material.source.角色卡,books:material.source.世界书,map:base,chat:chatSnapshot,request:capturedPrompt}),{role:'system',content:'本次生成范围：'+JSON.stringify(generationScope(base,base.activeMap,capturedLevel))}];
+                lastPromptPreview=messages.map(m=>`[${m.role}]\n${m.content}`).join('\n\n');render();
+                const result=await job.wait(()=>generateMapText(ctx,api,{messages,prompt:'',systemPrompt,responseLength:api.maxTokens,trimNames:false},{signal:job.signal,targetKey:persistence.namespace+':'+persistence.scope()}));
                 guard();job.setStage('检查地图结构与路线方位');
                 if(disposed)throw new Error('地图窗口已关闭，未应用生成结果');
                 if(token!==draft.token()||navToken!==navigationRevision)throw new Error('生成期间聊天或草稿发生变化，未覆盖当前地图，请重新生成');
