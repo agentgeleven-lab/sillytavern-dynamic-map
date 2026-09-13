@@ -1,3 +1,4 @@
+import { TOOL_PROMPT, targetWorldbook, syncToolPrompt } from '../adapters/tool-lorebook.js';
 import { GENERATION_LEVELS, mapPath, mapChoices, locationPath, projectedLocation, generationScope, levelPrompt } from '../core/hierarchy.js';
 import { renderCellEditor, renderCellDetails, renderCellRules } from './cells.js';
 import { cellKey } from '../core/cells.js';
@@ -197,7 +198,14 @@ export function createPanel(store,persistence,preferences,options={}){
             form.append(el('p',(state.registered?'地图工具已注册':'当前酒馆未提供工具注册接口')+' · '+(state.supported?'模型工具调用已启用':'请在酒馆 AI 响应配置中启用函数调用，并选择支持工具的模型'),'dm-help'));
             form.append(el('p',state.message),button('刷新工具状态',render));
             form.append(el('p','默认只生成草稿，检查后保存全部地图。自动保存开启后立即应用；人工编辑草稿会阻止 AI 覆盖。原生工具使用酒馆聊天模型，独立地图生成 API 仍用于生成页面。','dm-help'));
-            const prompt=field(form,'工具使用提示词（可复制到世界书）',el('textarea'));prompt.readOnly=true;prompt.value='剧情涉及位置、地点或道路变化时，先调用 dynamic_map_query 查询对应地图，再调用 dynamic_map_update 提交已确定的变化。复用已有 ID 和类型；不要编造距离、名称或新地点。需要新增地点时使用新的唯一 ID。仅在剧情明确到达后提交 move。一次提交相关变化，成功后不要重复调用；结果 applied=false 代表尚待用户保存，不要说已生效。不要同时使用地图移动请求变量重复移动。';
+            const prompt=field(form,'工具使用提示词（可复制到世界书）',el('textarea'));prompt.readOnly=true;prompt.value=TOOL_PROMPT;
+            const getContext=()=>globalThis.SillyTavern?.getContext?.()??{};
+            let target;try{target=targetWorldbook(getContext());}catch(e){target=e.message;}
+            form.append(el('p','目标：'+target+'。共享同一本世界书的角色会共用此条目。','dm-help'));
+            const feedback=el('p','只管理插件写入的工具提示词，手动复制的条目不会删除。');form.append(feedback);
+            const apply=async remove=>{write.disabled=erase.disabled=true;feedback.textContent=remove?'正在删除提示词…':'正在写入提示词…';try{const result=await syncToolPrompt({getContext,remove});feedback.textContent=result.name+'：'+result.message;}catch(e){feedback.textContent=e.message;}finally{write.disabled=erase.disabled=false;}};
+            const write=button('一键写入世界书',()=>void apply(false)),erase=button('删除已写入提示词',()=>void apply(true));form.append(write,erase);
+
         }
         form.append(el('h3','地图生成 API'));
         const config=apiSettings.snapshot();
