@@ -6,7 +6,7 @@
 
 节点连线 · 六边形 · 方格 · 多层地图 · AI 生成与动态更新
 
-**当前版本 0.14.6** · 无第三方运行依赖 · 无需构建
+**当前版本 0.15.0** · 无第三方运行依赖 · 无需构建
 
 [安装与上手](#安装与上手) · [使用指南](docs/USAGE.md) · [更新记录](CHANGELOG.md) · [问题反馈](https://github.com/agentgeleven-lab/sillytavern-dynamic-map/issues)
 
@@ -57,6 +57,10 @@ https://github.com/agentgeleven-lab/sillytavern-dynamic-map
 
 ## AI 生成与更新
 
+### 生成预设与 API 配置
+
+「设置 → 生成预设」可新建、复制和编辑消息块，调整资料顺序与开关；在 AI 页选择预设并查看最近请求提示词。「生成 API」支持命名配置，分别绑定整图、追加与内部地图生成；可开启流式接收和同一聊天排队。完整结果仍先校验再进入草稿。详见[0.15.0 更新说明](CHANGELOG.md#v0150-地图生成预设与异步运行配置)。
+
 ### 生成地图
 
 默认使用酒馆当前模型，也可在「设置 → 生成 API」配置兼容 Chat Completions 的独立 API。
@@ -103,7 +107,7 @@ npm run check
 npm test
 ```
 
-当前版本通过119项自动测试与58个 JavaScript 模块语法检查；这不等同于全部真实酒馆主题及模型的兼容验证。
+当前版本通过124项自动测试与61个 JavaScript 模块语法检查；这不等同于全部真实酒馆主题及模型的兼容验证。
 
 <details>
 <summary>本地演示与浏览器检查</summary>
