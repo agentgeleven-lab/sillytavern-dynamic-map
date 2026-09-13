@@ -257,7 +257,7 @@ export function createPanel(store,persistence,preferences,options={}){
         const entrance=field(form,'内部地图入口地点',select([{id:'',name:'请选择地点'},...Object.values(map.nodes)],selected??'')),childType=field(form,'内部地图形态',select(mapTypes,'grid'));entrance.disabled=childType.disabled=aiBusy;
         const progress=el('p',generationStatus,'dm-generation-progress');progress.setAttribute('role','status');form.append(progress);
         const distances=field(form,'为道路生成距离',input('','checkbox'));distances.checked=distanceRoads;distances.disabled=aiBusy;distances.onchange=()=>{distanceRoads=distances.checked;};
-        form.append(el('p','新增按钮读取当前资料、当前地图草稿，以及最近 30 条非系统聊天正文（最多 60000 字符）；只新增地点和道路，保留已有资料与当前位置。','dm-help'));
+        form.append(el('p','新增按钮读取当前资料、当前地图草稿，以及最近 30 条非系统聊天正文（不设资料字符上限）；只新增地点和道路，保留已有资料与当前位置。','dm-help'));
         const naming=field(form,'为道路生成名称',input('','checkbox'));naming.checked=nameRoads;naming.disabled=aiBusy;naming.onchange=()=>{nameRoads=naming.checked;};
         const include=field(form,'同时读取已开启的全局世界书',input('','checkbox'));include.checked=includeGlobal;include.disabled=aiBusy;include.onchange=()=>{includeGlobal=include.checked;sourceReport='';render();};
         form.append(el('p',includeGlobal?'读取角色及聊天绑定世界书，并加入已开启的全局世界书；未开启的其他书籍不读取。':'读取当前角色卡、角色绑定及聊天绑定的世界书。','dm-help'),el('p',sourceReport,'dm-help'));
