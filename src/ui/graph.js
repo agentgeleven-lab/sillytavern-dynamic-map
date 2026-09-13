@@ -54,11 +54,11 @@ export function renderMap(map, options) {
     function paintCompass(plan) {
         compass.replaceChildren();
         if (!plan || plan.mode !== 'snap') return;
-        const p=points.get(plan.anchorId);
+        const p=points.get(plan.anchorId),radius=plan.radius??ROAD_LENGTH;
         for (const d of DIRECTIONS) {
             const active=d.id===plan.direction;
-            compass.append(svgNode('line',{x1:p.x,y1:p.y,x2:p.x+d.x*ROAD_LENGTH,y2:p.y+d.y*ROAD_LENGTH,stroke:active?'var(--dm-accent)':'var(--dm-muted)','stroke-width':active?3:1,'stroke-dasharray':'3 5'}));
-            compass.append(svgNode('text',{x:p.x+d.x*(ROAD_LENGTH+22),y:p.y+d.y*(ROAD_LENGTH+22)+4,'text-anchor':'middle',fill:active?'var(--dm-accent)':'var(--dm-muted)','font-size':active?15:11},d.label));
+            compass.append(svgNode('line',{x1:p.x,y1:p.y,x2:p.x+d.x*radius,y2:p.y+d.y*radius,stroke:active?'var(--dm-accent)':'var(--dm-muted)','stroke-width':active?3:1,'stroke-dasharray':'3 5'}));
+            compass.append(svgNode('text',{x:p.x+d.x*(radius+22),y:p.y+d.y*(radius+22)+4,'text-anchor':'middle',fill:active?'var(--dm-accent)':'var(--dm-muted)','font-size':active?15:11},d.label));
         }
     }
     for (const n of Object.values(map.nodes)) {
@@ -124,7 +124,7 @@ export function renderMap(map, options) {
         drag.moved=true;
         if(drag.id){
             if(!editable)return;
-            const pointer=world(e),plan=isTileMap(map)?tilePlacement(map,drag.id,pointer):placementPlan(map,drag.id,pointer);drag.plan=plan;
+            const pointer=world(e),plan=isTileMap(map)?tilePlacement(map,drag.id,pointer):placementPlan(map,drag.id,pointer,options.dragMode);drag.plan=plan;
             if(!plan){onHint('此地点没有直接相连的邻居，请先添加路线。');return;}
             points.set(drag.id,pointer);
             groups.get(drag.id).setAttribute('transform',`translate(${pointer.x} ${pointer.y})`);
@@ -132,9 +132,10 @@ export function renderMap(map, options) {
             const names=map.edges.filter(edge=>plan.removeIds.includes(edge.id)).map(edge=>map.nodes[edge.from===drag.id?edge.to:edge.from].name);
             if(plan.mode==='snap') {
                 compass.append(svgNode('circle',{cx:plan.position.x,cy:plan.position.y,r:22,fill:'none',stroke:'var(--dm-accent)','stroke-width':2,'stroke-dasharray':'5 4'}));
+                if(plan.reconnect){const anchor=points.get(plan.anchorId);compass.append(svgNode('line',{x1:anchor.x,y1:anchor.y,x2:plan.position.x,y2:plan.position.y,stroke:'var(--dm-accent)','stroke-width':4,'stroke-dasharray':'6 4'}));}
                 const d=DIRECTIONS.find(d=>d.id===plan.direction).label;
-                onHint(`松手：连接 ${map.nodes[plan.anchorId].name} · ${d}${plan.adjusted?'（原方位被占用，已选择最近空位）':''}${names.length?' · 断开：'+names.join('、'):''}`);
-            } else if(plan.mode==='cell'){compass.append(svgNode('circle',{cx:plan.position.x,cy:plan.position.y,r:30,fill:'none',stroke:'var(--dm-accent)'}));onHint(`松手：放置到格子 ${plan.cell.q}, ${plan.cell.r}，保留全部路线`);} else onHint(plan.mode==='blocked'?plan.reason:`松手：自由放置${names.length?' · 断开：'+names.join('、'):''}`);
+                onHint(`松手：${plan.reconnect?'连接':'相对'} ${map.nodes[plan.anchorId].name} · ${d}${plan.reconnect?'':' · 保留全部路线'}${names.length?' · 断开：'+names.join('、'):''}`);
+            } else if(plan.mode==='cell'){compass.append(svgNode('circle',{cx:plan.position.x,cy:plan.position.y,r:30,fill:'none',stroke:'var(--dm-accent)'}));onHint(`松手：放置到格子 ${plan.cell.q}, ${plan.cell.r}，保留全部路线`);} else onHint(plan.mode==='blocked'?plan.reason:`松手：自由放置${plan.reconnect?'':' · 保留全部路线'}${names.length?' · 断开：'+names.join('、'):''}`);
         }else viewport.setAttribute('transform',`translate(${camera.x+dx} ${camera.y+dy}) scale(${camera.zoom})`);
     });
     function finish(e){
@@ -147,7 +148,7 @@ export function renderMap(map, options) {
             viewport.setAttribute('transform',`translate(${camera.x} ${camera.y}) scale(${camera.zoom})`);onHint('拖动已取消');return;
         }
         if(!ended.moved){if(ended.edgeId&&!ended.id&&options.onEdgeSelect){options.onEdgeSelect(ended.edgeId);return;}if(isTileMap(map)&&(options.cellEditing||!ended.id))options.onCells?.([cellKey(pointCell(map.type,world(e)))],false);else if(ended.id)onSelect(ended.id);return;}
-        if(ended.id){if(editable&&ended.plan)onSnap(ended.id,ended.plan);}
+        if(ended.id){if(editable&&ended.plan?.mode==='blocked'){const original=map.nodes[ended.id].position;points.set(ended.id,original);groups.get(ended.id).setAttribute('transform',`translate(${original.x} ${original.y})`);paintEdges();onHint(ended.plan.reason);return;}if(editable&&ended.plan)onSnap(ended.id,ended.plan);}
         else{const p=point(e);onCamera({...camera,x:camera.x+p.x-ended.start.x,y:camera.y+p.y-ended.start.y});}
     }
     svg.addEventListener('pointerup',finish);svg.addEventListener('pointercancel',finish);
