@@ -1,5 +1,6 @@
 import { waitForSignal } from '../core/generation-job.js';
-const defaults={enabled:false,baseUrl:'',model:'',maxTokens:4096,timeoutSeconds:120,rememberKey:false,apiKey:''};
+const targetQueues=new Map();
+const defaults={stream:false,queueMode:'serial',enabled:false,baseUrl:'',model:'',maxTokens:4096,timeoutSeconds:120,rememberKey:false,apiKey:''};
 export function endpointFor(baseUrl){
  let url;try{url=new URL(baseUrl.trim());}catch{throw new Error('请输入完整的 API 地址，例如 https://api.example.com/v1');}
  if(!['https:','http:'].includes(url.protocol)||url.username||url.password||url.search||url.hash)throw new Error('API 地址只允许 http/https，不要在地址内填写密钥、参数或账号密码');
@@ -7,6 +8,7 @@ export function endpointFor(baseUrl){
 }
 export function validateApiSettings(value){
  const c={...defaults,...value};
+ if(typeof c.stream!=='boolean'||!['serial','parallel'].includes(c.queueMode))throw Error('运行策略无效');
  if(typeof c.enabled!=='boolean'||typeof c.rememberKey!=='boolean'||typeof c.baseUrl!=='string'||typeof c.model!=='string'||typeof c.apiKey!=='string')throw new Error('API 配置格式无效');
  if(!Number.isInteger(c.maxTokens)||c.maxTokens<1||c.maxTokens>131072)throw new Error('输出长度需为 1–131072 的整数');
  if(!Number.isFinite(c.timeoutSeconds)||c.timeoutSeconds<10||c.timeoutSeconds>600)throw new Error('超时时间需为 10–600 秒');
@@ -25,15 +27,16 @@ export function createApiSettings(storage,namespace){
 }
 async function generateMapTextInternal(ctx,config,request,{fetchImpl=globalThis.fetch,signal}={}){
  const c=validateApiSettings(config);
- if(!c.enabled){if(typeof ctx?.generateRaw!=='function')throw new Error('请配置酒馆模型，或在设置中启用独立 API');return ctx.generateRaw(request);}
+ if(!c.enabled){if(typeof ctx?.generateRaw!=='function')throw new Error('请配置酒馆模型，或在设置中启用独立 API');const {messages,...hostRequest}=request;if(messages)hostRequest.prompt=messages.filter((_,i)=>i>0).map(m=>`[${m.role}]\n${m.content}`).join('\n\n');return ctx.generateRaw(hostRequest);}
  const controller=new AbortController(),abort=()=>controller.abort();
  if(signal?.aborted)abort();signal?.addEventListener('abort',abort,{once:true});
  const timer=setTimeout(abort,c.timeoutSeconds*1000);
  try{
   const headers={'Content-Type':'application/json'};if(c.apiKey)headers.Authorization=`Bearer ${c.apiKey}`;
   const response=await fetchImpl(endpointFor(c.baseUrl),{method:'POST',headers,credentials:'omit',redirect:'error',cache:'no-store',signal:controller.signal,
-   body:JSON.stringify({model:c.model,messages:[{role:'system',content:request.systemPrompt},{role:'user',content:request.prompt}],max_tokens:c.maxTokens,stream:false})});
+   body:JSON.stringify({model:c.model,messages:request.messages??[{role:'system',content:request.systemPrompt},{role:'user',content:request.prompt}],max_tokens:c.maxTokens,stream:c.stream})});
   if(!response.ok)throw new Error(`独立 API 请求失败（HTTP ${response.status}），请检查地址、密钥、模型名称及额度`);
+  if(c.stream&&response.headers?.get('content-type')?.includes('text/event-stream'))return await readMapStream(response,controller.signal);
   let data;try{data=await response.json();}catch{throw new Error('API 返回的不是有效 JSON 响应');}
   const choice=data?.choices?.[0];if(choice?.finish_reason==='length')throw new Error('模型输出被截断，请增加输出长度后重新生成');
   const content=choice?.message?.content;
@@ -50,6 +53,18 @@ export async function generateMapText(ctx,config,request,options={}){
  const abort=()=>controller.abort(options.signal.reason);
  if(options.signal?.aborted)abort();options.signal?.addEventListener('abort',abort,{once:true});
  const timer=setTimeout(()=>controller.abort(new Error('模型等待超时，已停止等待；地图未修改')),c.timeoutSeconds*1000);
- try{return await waitForSignal(()=>generateMapTextInternal(ctx,c,request,{...options,signal:controller.signal}),controller.signal);}
+ try{const run=()=>{if(controller.signal.aborted)throw controller.signal.reason;return generateMapTextInternal(ctx,c,request,{...options,signal:controller.signal});};let task;if(options.targetKey&&c.queueMode==='serial'){const previous=targetQueues.get(options.targetKey)??Promise.resolve();task=previous.catch(()=>{}).then(run);const tracked=task.then(()=>{},()=>{}).finally(()=>{if(targetQueues.get(options.targetKey)===tracked)targetQueues.delete(options.targetKey);});targetQueues.set(options.targetKey,tracked);}else task=Promise.resolve().then(run);task.catch(()=>{});return await waitForSignal(()=>task,controller.signal);}
  finally{clearTimeout(timer);options.signal?.removeEventListener('abort',abort);}
+}
+
+const profileInstances=new WeakMap();
+export function createApiProfiles(storage,namespace){let instances=profileInstances.get(storage);if(!instances){instances=new Map();profileInstances.set(storage,instances);}if(instances.has(namespace))return instances.get(namespace);const key='dynamic-map.api-profiles:'+namespace;let state={profiles:[],bindings:{}};const secrets=new Map();try{const saved=JSON.parse(storage.getItem(key));if(saved&&Array.isArray(saved.profiles)&&saved.bindings)state=saved;}catch{}
+ const api={list:()=>state.profiles.map(p=>({id:p.id,name:p.name})),binding:mode=>state.bindings[mode]??'',bind(mode,id){state.bindings[mode]=id;storage.setItem(key,JSON.stringify(state));},save(id,name,config){const valid=validateApiSettings(config);const {apiKey,...fields}=valid;secrets.set(id,apiKey);const record={id,name,...fields};if(valid.rememberKey)record.apiKey=apiKey;state.profiles=state.profiles.filter(p=>p.id!==id);state.profiles.push(record);storage.setItem(key,JSON.stringify(state));},resolve(mode,fallback){const p=state.profiles.find(p=>p.id===state.bindings[mode]);return p?validateApiSettings({...p,apiKey:secrets.get(p.id)??p.apiKey??''}):fallback;},get(id){const p=state.profiles.find(p=>p.id===id);return p?validateApiSettings({...p,apiKey:secrets.get(id)??p.apiKey??''}):null;},remove(id){state.profiles=state.profiles.filter(p=>p.id!==id);secrets.delete(id);for(const mode of Object.keys(state.bindings))if(state.bindings[mode]===id)delete state.bindings[mode];storage.setItem(key,JSON.stringify(state));}};instances.set(namespace,api);return api;
+}
+
+async function readMapStream(response,signal){
+ if(!response.body)throw Error('API 未返回流式内容');const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',text='',finished=false;
+ const abort=()=>void reader.cancel();signal.addEventListener('abort',abort,{once:true});
+ const event=block=>{const data=block.split('\n').filter(l=>l.startsWith('data:')).map(l=>l.slice(5).trim()).join('\n');if(!data)return;if(data==='[DONE]'){finished=true;return;}const value=JSON.parse(data);if(value.error)throw Error('流式 API 返回错误');const choice=value.choices?.[0];if(choice?.finish_reason==='length')throw Error('模型输出被截断，请增加输出长度');if(choice?.finish_reason==='stop')finished=true;const delta=choice?.delta?.content;if(typeof delta==='string')text+=delta;};
+ try{while(true){const chunk=await reader.read();if(signal.aborted)throw Error('生成已取消');buffer+=decoder.decode(chunk.value??new Uint8Array(),{stream:!chunk.done}).replace(/\r\n/g,'\n');let split;while((split=buffer.indexOf('\n\n'))>=0){event(buffer.slice(0,split));buffer=buffer.slice(split+2);}if(chunk.done){if(buffer.trim())event(buffer);break;}if(finished)break;}if(!finished)throw Error('模型流式响应中断，未应用结果');if(!text.trim())throw Error('API 未返回文本');return text;}finally{signal.removeEventListener('abort',abort);await reader.cancel().catch(()=>{});reader.releaseLock();}
 }
