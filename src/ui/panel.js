@@ -1,3 +1,4 @@
+import { inspectMapRegex, syncMapRegex } from '../adapters/text-regex.js';
 import { TEXT_PROMPT } from '../integrations/text-updates.js';
 import { mapChanges } from './map-presentation.js';
 import { TOOL_PROMPT, targetWorldbook, syncToolPrompt, inspectToolPrompt } from '../adapters/tool-lorebook.js';
@@ -218,6 +219,13 @@ export function createPanel(store,persistence,preferences,options={}){
             const prompt=field(form,'工具使用提示词（可复制到世界书）',el('textarea'));prompt.readOnly=true;prompt.value=state.textMode?TEXT_PROMPT:TOOL_PROMPT;
             if(state.textMode)form.append(el('p','启用后自动附加当前地图资料与格式规则，不额外请求模型。仅处理新生成的完整回复，续写不触发；更新块保留在消息原文中。若以前写入过工具提示词，请点击更新提示词替换旧规则。','dm-help'));
             const getContext=()=>globalThis.SillyTavern?.getContext?.()??{};
+            if(state.textMode){
+                const regexFeedback=el('p');let regexBusy=false;
+                const refreshRegex=()=>{try{const info=inspectMapRegex(getContext);regexFeedback.textContent=info.message;removeRegex.disabled=!info.exists;}catch(e){regexFeedback.textContent=e.message;removeRegex.disabled=true;}};
+                const changeRegex=async remove=>{if(regexBusy)return;regexBusy=true;addRegex.disabled=removeRegex.disabled=true;try{regexFeedback.textContent=await syncMapRegex(getContext,remove);}catch(e){regexFeedback.textContent=e.message;}finally{regexBusy=false;addRegex.disabled=false;try{removeRegex.disabled=!inspectMapRegex(getContext).exists;}catch{removeRegex.disabled=true;}}};
+                const addRegex=button('一键添加隐藏正则',()=>void changeRegex(false)),removeRegex=button('移除地图隐藏正则',()=>void changeRegex(true));
+                form.append(el('h3','隐藏正文更新块'),el('p','添加到酒馆全局正则，仅隐藏 AI 回复中完整的 <map_update> 块。保留消息原文与发送给模型的内容，地图更新仍可读取。不会自动启用已关闭的酒馆正则扩展。','dm-help'),addRegex,removeRegex,regexFeedback);refreshRegex();
+            }
             let target;try{target=targetWorldbook(getContext());}catch(e){target=e.message;}
             form.append(el('p','目标：'+target+'。共享同一本世界书的角色会共用此条目。','dm-help'));
             const feedback=el('p','正在检查世界书提示词状态…');let promptBusy=false;form.append(feedback);
