@@ -47,19 +47,20 @@ export function compileMapUpdate(document,request,{allowDelete=false}={}){
 
 export function createMapTools({store,draft,persistence,getContext}){
     let disposed=false,registered=false,lease=null,ownedDraft=null,message='尚未调用地图工具';
-    const settings=()=>({enabled:false,autoSave:false,allowDelete:false,...getContext()?.extensionSettings?.dynamicMapTools});
-    function ready(){persistence.ensureActive();if(!getContext()?.chatMetadata?.[STORAGE_KEY])throw Error('请先保存初始地图');if(!settings().enabled||disposed)throw Error('地图工具未启用');}
+    const settings=()=>({enabled:false,textMode:false,autoSave:false,allowDelete:false,...getContext()?.extensionSettings?.dynamicMapTools});
+    function ready(mode=false){persistence.ensureActive();if(!getContext()?.chatMetadata?.[STORAGE_KEY])throw Error('请先保存初始地图');if(!settings().enabled||settings().textMode!==mode||disposed)throw Error('地图工具未启用');}
     function token(){return `${persistence.token()}:${draft.token()}:${JSON.stringify(store.snapshot())}`;}
-    function query(args={}){
-        ready();exact(args,['mapId']);if(args.mapId!==undefined)text(args.mapId);
+    function query(args={},mode=false){
+        ready(mode);exact(args,['mapId']);if(args.mapId!==undefined)text(args.mapId);
         const doc=draft.snapshot(),mapId=args.mapId??doc.activeMap,m=Object.hasOwn(doc.maps,mapId)?doc.maps[mapId]:null;if(!m)throw Error('地图不存在');
-        lease={id:crypto.randomUUID(),base:token(),metadata:getContext().chatMetadata};
+        lease={id:crypto.randomUUID(),mapId,base:token(),metadata:getContext().chatMetadata};
         const nodes=Object.values(m.nodes).filter(visible);
         return {token:lease.id,draft:draft.status().dirty,activeMap:doc.activeMap,maps:Object.values(doc.maps).map(x=>({id:x.id,name:x.name,type:x.type,parentMap:x.parentMap,parentNode:x.metadata.parentNode??null})),map:{id:m.id,type:m.type,currentLocation:m.currentLocation,nodeTypes:m.metadata.nodeTypes,roadTypes:m.metadata.roadTypes,rules:m.metadata.rules,nodes:nodes.map(n=>({id:n.id,name:n.name,type:n.type,description:n.description})),edges:m.edges.filter(e=>e.discovered&&visible(m.nodes[e.from])&&visible(m.nodes[e.to])).map(e=>({id:e.id,from:e.from,to:e.to,name:e.name,type:e.type,direction:e.direction,distance:e.distance,bidirectional:e.bidirectional}))},instructions:'按剧情事实更新。先查询目标地图，复制 token 与类型 ID。更新默认进入草稿，未保存不代表生效。move 只记录已发生的移动，不计算路程时间。'};
     }
-    function update(request){
-        ready();if(!lease||request?.token!==lease.id||lease.base!==token()||lease.metadata!==getContext().chatMetadata)throw Error('地图或聊天已变化，请重新查询');
+    function update(request,mode=false){
+        ready(mode);if(!lease||request?.token!==lease.id||lease.base!==token()||lease.metadata!==getContext().chatMetadata)throw Error('地图或聊天已变化，请重新查询');
         if(draft.status().conflict||draft.status().dirty&&ownedDraft!==draft.token())throw Error('有人工编辑草稿，请先保存或放弃后重试');
+        if(mode&&request.operations?.some(o=>o?.mapId!==lease.mapId))throw Error('正文模式只能更新本轮提供详情的角色地图');
         const next=compileMapUpdate(draft.snapshot(),request,settings());
         lease=null;
         if(settings().autoSave){persistence.importDocument(next,persistence.token());draft.discard();ownedDraft=null;message='AI 更新已应用，本地保存及聊天同步状态见地图底部';}
@@ -73,5 +74,5 @@ export function createMapTools({store,draft,persistence,getContext}){
     }
     function tryRegister(){try{register();}catch(e){message='工具注册失败：'+e.message;for(const name of names){try{getContext()?.unregisterFunctionTool?.(name);}catch{ /* Host cleanup is optional. */ }}registered=false;}}
     tryRegister();
-    return {query,update,status:()=>({...settings(),registered,supported:!!getContext()?.isToolCallingSupported?.(),message}),configure(patch){exact(patch,['enabled','autoSave','allowDelete']);if(Object.values(patch).some(v=>typeof v!=='boolean'))throw Error('设置需要布尔值');const ctx=getContext();if(!ctx?.extensionSettings)throw Error('酒馆设置不可用');ctx.extensionSettings.dynamicMapTools={...settings(),...patch};ctx.saveSettingsDebounced?.();lease=null;tryRegister();},destroy(){disposed=true;lease=null;if(registered)for(const name of names)getContext()?.unregisterFunctionTool?.(name);}};
+    return {query,update,queryText:()=>query({},true),updateText:request=>update(request,true),invalidate(){lease=null;},status:()=>({...settings(),registered,supported:!!getContext()?.isToolCallingSupported?.(),message}),configure(patch){exact(patch,['enabled','textMode','autoSave','allowDelete']);if(Object.values(patch).some(v=>typeof v!=='boolean'))throw Error('设置需要布尔值');const ctx=getContext();if(!ctx?.extensionSettings)throw Error('酒馆设置不可用');ctx.extensionSettings.dynamicMapTools={...settings(),...patch};ctx.saveSettingsDebounced?.();lease=null;tryRegister();},destroy(){disposed=true;lease=null;if(registered)for(const name of names)getContext()?.unregisterFunctionTool?.(name);}};
 }
