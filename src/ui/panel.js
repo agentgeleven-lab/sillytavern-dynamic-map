@@ -26,7 +26,7 @@ const field=(host,name,control)=>{const label=el('label',name);label.append(cont
 const download=(data)=>{const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=el('a');a.href=url;a.download='dynamic-map.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 
 export function createPanel(store,persistence,preferences,options={}){
-    const kit={el,field,input,select,button,uid};let selectedCells=[],brushCells=false,browsedMap=null,browseScope=null,navigationRevision=0,aiLevel='world',aiMapKey='',searchTerm='';
+    const kit={el,field,input,select,button,uid};let selectedCells=[],brushCells=false,browsedMap=null,browseScope=null,navigationRevision=0,aiLevel='world',aiMapKey='',searchTerm='',settingsCategory='appearance';
     const apiSettings=options.apiSettings??createApiSettings(localStorage,persistence.namespace);
     const draft=options.draft??createDraftSession(store,persistence), panel=el('section');let disposed=false,activeJob=null,generationStatus='';panel.id=options.inline?uid('dynamic-map-inline'):'dynamic-map-panel';panel.className='dynamic-map-panel'+(options.inline?' dm-inline':'');panel.setAttribute('aria-label',options.inline?'消息末尾地图窗口':'动态地图悬浮窗');
     panel.innerHTML='<header class="dm-header"><div class="dm-handle" tabindex="0" aria-label="拖动地图窗口，方向键移动"><span>🗺</span><strong class="dm-compact-location"></strong></div><button class="dm-toggle" type="button"></button></header><div class="dm-content"><nav class="dm-tabs" role="tablist" aria-label="地图功能"></nav><div class="dm-page"></div><div class="dm-savebar"></div><p class="dm-save-status" role="status"></p><p class="dm-feedback" role="status"></p></div>';
@@ -182,18 +182,24 @@ export function createPanel(store,persistence,preferences,options={}){
         const name=field(form,`新${label}类型名称`,input());form.append(button('添加类型',()=>edit(m=>{m.metadata[key].push({id:uid('type'),name:name.value.trim()});validateRules(m);})));
     }
     function renderSettings(){
-        const form=el('div',undefined,'dm-form');page.append(form);const settings=preferences.snapshot();
+        const categories=[['appearance','界面外观'],...(options.integration?[['integration','变量与状态栏']]:[]),...(options.tools?[['tools','AI 动态更新']]:[]),['api','生成 API']];
+        if(!categories.some(([id])=>id===settingsCategory))settingsCategory='appearance';
+        const nav=el('nav',undefined,'dm-settings-categories');nav.setAttribute('aria-label','设置分类');page.append(nav);
+        const sections=new Map(),buttons=new Map();
+        const activate=id=>{settingsCategory=id;for(const [key,section] of sections)section.hidden=key!==id;for(const [key,item] of buttons)item.setAttribute('aria-pressed',String(key===id));};
+        for(const [id,label] of categories){const item=button(label,()=>activate(id));item.setAttribute('aria-pressed',String(id===settingsCategory));nav.append(item);buttons.set(id,item);const section=el('section',undefined,'dm-form dm-settings-section');section.setAttribute('aria-label',label);section.hidden=id!==settingsCategory;sections.set(id,section);page.append(section);}
+        let form=sections.get('appearance');form.append(el('h3','界面外观'));const settings=preferences.snapshot();
         const enabled=field(form,'在消息末尾显示小型地图按钮',input('','checkbox'));enabled.checked=settings.messageButtons;enabled.onchange=()=>run(()=>preferences.update({messageButtons:enabled.checked}));
         const theme=field(form,'界面主题',select(THEMES,settings.theme));theme.onchange=()=>run(()=>preferences.update({theme:theme.value}));
         form.append(el('p','消息末尾的“🗺 地图”按钮在该消息下方展开完整地图窗口。界面设置立即生效，不修改地图和变量。','dm-help'));
         if(options.integration){
-            const bridge=options.integration,state=bridge.status();form.append(el('h3','小白X与状态栏联动'));
+            form=sections.get('integration');const bridge=options.integration,state=bridge.status();form.append(el('h3','小白X与状态栏联动'));
             for(const [key,label] of [['variables','同步地图摘要到聊天变量'],['hud','在状态栏显示地图位置'],['allowMoves','允许小白X提交位置更新']]){const toggle=field(form,label,input('','checkbox'));toggle.checked=state[key];toggle.onchange=()=>run(()=>bridge.configure({[key]:toggle.checked}));}
             form.append(el('p',(state.littleWhiteBox?'已检测到小白X 2.0':'未检测到小白X 2.0；聊天变量仍可供其他插件读取')+' · 状态栏：'+(state.statusHud?'已检测到':'未检测到')+' · '+state.message,'dm-integration-status'),button('重试地图变量同步',()=>void bridge.sync()));
             const help=field(form,'联动提示词（复制到你的世界书）',el('textarea'));help.readOnly=true;help.value='当前地图摘要（只读，不修改“地图”变量）：\n{{xbgetvar_yaml::地图}}\n只有剧情明确发生移动时，才在 <state> 中完整写入：\n地图移动请求: {"请求ID":"本次唯一编号","地图版本":摘要中的地图版本数字,"地图ID":"目标地图ID","地点ID":"目标地点ID"}\n</state>\n不得虚构 ID；未开启位置更新时请求不执行。位置更新仅记录叙事位置，不自动寻路或推进时间。';
         }
         if(options.tools){
-            const tools=options.tools,state=tools.status();form.append(el('h3','AI 动态更新与 Tool Calling'));
+            form=sections.get('tools');const tools=options.tools,state=tools.status();form.append(el('h3','AI 动态更新与 Tool Calling'));
             for(const [key,label] of [['enabled','启用聊天中的地图工具'],['autoSave','自动保存 AI 地图更新'],['allowDelete','允许 AI 删除地点和道路']]){const toggle=field(form,label,input('','checkbox'));toggle.checked=state[key];toggle.onchange=()=>run(()=>{tools.configure({[key]:toggle.checked});render();});}
             form.append(el('p',(state.registered?'地图工具已注册':'当前酒馆未提供工具注册接口')+' · '+(state.supported?'模型工具调用已启用':'请在酒馆 AI 响应配置中启用函数调用，并选择支持工具的模型'),'dm-help'));
             form.append(el('p',state.message),button('刷新工具状态',render));
@@ -207,7 +213,7 @@ export function createPanel(store,persistence,preferences,options={}){
             const write=button('一键写入世界书',()=>void apply(false)),erase=button('删除已写入提示词',()=>void apply(true));form.append(write,erase);
 
         }
-        form.append(el('h3','地图生成 API'));
+        form=sections.get('api');form.append(el('h3','地图生成 API'));
         const config=apiSettings.snapshot();
         const use=field(form,'使用独立 API 生成地图',input('','checkbox'));use.checked=config.enabled;
         const address=field(form,'API 地址',input(config.baseUrl));address.placeholder='https://api.example.com/v1';
