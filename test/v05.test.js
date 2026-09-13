@@ -29,8 +29,8 @@ test('default sources read bound books and card, but no global or inactive books
 test('global option reads only ENABLED global books, never all available books',async()=>{
  const {ctx,wi,calls}=sourceFixture();await collectMapSources(ctx,wi,{includeGlobal:true});assert.deepEqual(calls,['bound','extra','chat','active-global']);assert.ok(!calls.includes('inactive'));assert.equal(calls.filter(n=>n==='bound').length,1);
 });
-test('failed book reads, changed chat and excessive sources reject before generation',async()=>{
- const {ctx,wi}=sourceFixture();await assert.rejects(collectMapSources(ctx,wi,{maxChars:1}),/超过/);await assert.rejects(collectMapSources(ctx,wi,{guard(){throw Error('聊天变化');}}),/聊天变化/);wi.loadWorldInfo=async()=>null;await assert.rejects(collectMapSources(ctx,wi),/读取失败/);
+test('large sources remain intact while failed reads and changed chat reject',async()=>{
+ const {ctx,wi}=sourceFixture();const large='资料'.repeat(150000);ctx.characters[0].data.description=large;wi.loadWorldInfo=async()=>({entries:{0:{content:large}}});const result=await collectMapSources(ctx,wi);assert.equal(result.source.角色卡.描述,large);assert.equal(result.source.世界书[0].条目[0].内容,large);assert.ok(result.characters>200000);await assert.rejects(collectMapSources(ctx,wi,{guard(){throw Error('聊天变化');}}),/聊天变化/);wi.loadWorldInfo=async()=>null;await assert.rejects(collectMapSources(ctx,wi),/读取失败/);
 });
 test('embedded character book is read when no primary book is bound',async()=>{
  const {ctx,wi}=sourceFixture();delete ctx.characters[0].data.extensions.world;ctx.characters[0].data.character_book={name:'内嵌书',entries:[{enabled:true,content:'世界背景'},{enabled:false,content:'禁用'}]};const result=await collectMapSources(ctx,wi);assert.equal(result.source.世界书.at(-1).名称,'内嵌书');assert.equal(result.source.世界书.at(-1).条目.length,1);

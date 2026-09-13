@@ -17,7 +17,7 @@ test('expansion preserves old map while adding new connected nodes',()=>{
 test('chat reader selects latest visible text, not hidden or unselected swipes',()=>{
  const chat=Array.from({length:35},(_,i)=>({mes:String(i),name:'角色',swipes:['secret']}));chat.push({is_system:true,mes:'hidden'});
  const result=recentMapChat({chat});assert.equal(result.length,30);assert.equal(result[0].内容,'5');assert.ok(!JSON.stringify(result).includes('secret'));assert.throws(()=>recentMapChat({chat:[]}),/没有/);
- assert.throws(()=>recentMapChat({chat:[{mes:'x'.repeat(60001)}]}),/超过/);
+ const large='x'.repeat(100000);assert.equal(recentMapChat({chat:[{mes:large}]})[0].内容,large);
 });
 test('distance prompt is opt in independently of naming',()=>{
  const d=createDemoDocument();assert.match(buildMapGenerationPrompt(d),/本次道路距离：未开启/);assert.match(buildMapGenerationPrompt(d,{distanceRoads:true}),/本次道路距离：已开启/);
