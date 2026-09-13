@@ -1,4 +1,5 @@
-import { cellKey, cellColor } from '../core/cells.js';
+import { nodeGlyph, labelPositions } from './map-presentation.js';
+import { cellKey, cellColor, cellRules } from '../core/cells.js';
 import { isTileMap, cellPoint, pointCell, tilePlacement, CELL_SIZE } from '../core/tiles.js';
 import { roadName } from '../core/spatial.js';
 import { DIRECTIONS, ROAD_LENGTH, placementPlan } from '../core/spatial.js';
@@ -25,19 +26,28 @@ export function renderMap(map, options) {
     const edgeLayer = svgNode('g'), nodeLayer = svgNode('g'), compass = svgNode('g', { 'pointer-events':'none', class:'dm-compass' });
     const points = new Map(Object.values(map.nodes).map(n => [n.id, { x:n.position.x ?? 0, y:n.position.y ?? 0 }]));
     const groups = new Map(),cellShapes=new Map();
+    const visibleNodes=Object.values(map.nodes).filter(n=>options.adjusting||n.discovered);
+    const labels=labelPositions(visibleNodes.map(n=>({...n,position:points.get(n.id)})));
+    const lowDetail=camera.zoom<.65, focus=options.selected;
+    const usedLabelBoxes=visibleNodes.map(n=>({x:points.get(n.id).x-45,y:points.get(n.id).y-32,w:90,h:90}));
     const highlight=key=>{const shape=cellShapes.get(key);if(shape){shape.setAttribute('stroke','var(--dm-accent)');shape.setAttribute('stroke-opacity','1');shape.setAttribute('stroke-width','4');}};
     function paintEdges(removed = []) {
         edgeLayer.replaceChildren();
         for (const e of map.edges) {
             if (!options.adjusting && (!e.discovered || !map.nodes[e.from].discovered || !map.nodes[e.to].discovered)) continue;
             const a=points.get(e.from), b=points.get(e.to), cut=removed.includes(e.id);
-            const g=svgNode('g', {'data-edge-id':e.id,class:`dm-edge${cut?' dm-cut':''}`});
-            g.append(svgNode('line',{x1:a.x,y1:a.y,x2:b.x,y2:b.y}));
+            const g=svgNode('g', {'data-edge-id':e.id,class:`dm-edge dm-road-${['path','trail','water','portal'].includes(e.type)?e.type:'road'}${cut?' dm-cut':''}${focus&&(e.from!==focus&&e.to!==focus)?' dm-dim':''}${options.selectedEdge===e.id?' dm-edge-selected':''}`});
+            g.append(svgNode('line',{x1:a.x,y1:a.y,x2:b.x,y2:b.y,class:'dm-road-line'}));
+            if(options.onEdgeSelect){g.setAttribute('role','button');g.setAttribute('tabindex','0');g.setAttribute('aria-label',`道路：${map.nodes[e.from].name}到${map.nodes[e.to].name}`);g.append(svgNode('line',{x1:a.x,y1:a.y,x2:b.x,y2:b.y,class:'dm-edge-hit'}));g.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();options.onEdgeSelect(e.id);}});}
+            g.append(svgNode('title',{},`${roadName(map,e)||'道路'}：${map.nodes[e.from].name} → ${map.nodes[e.to].name}`));
             if (!e.bidirectional) {
                 const x=a.x+(b.x-a.x)*.65,y=a.y+(b.y-a.y)*.65,angle=Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI;
                 g.append(svgNode('path',{d:'M -10 -6 L 0 0 L -10 6',transform:`translate(${x} ${y}) rotate(${angle})`,fill:'none',stroke:'var(--dm-accent)','stroke-width':3}));
             }
-            if (roadName(map,e)) g.append(svgNode('text',{x:(a.x+b.x)/2+8,y:(a.y+b.y)/2-10},roadName(map,e)));
+            if(roadName(map,e)&&(!lowDetail||options.selectedEdge===e.id||focus===e.from||focus===e.to)){
+                const x=(a.x+b.x)/2,y=(a.y+b.y)/2-12,w=Math.min(230,roadName(map,e).length*13),box={x:x-w/2,y:y-16,w,h:22};
+                if(!usedLabelBoxes.some(v=>box.x<v.x+v.w&&box.x+box.w>v.x&&box.y<v.y+v.h&&box.y+box.h>v.y)){g.append(svgNode('text',{x,y,'text-anchor':'middle'},roadName(map,e).slice(0,18)));usedLabelBoxes.push(box);}
+            }
             edgeLayer.append(g);
         }
     }
@@ -54,27 +64,38 @@ export function renderMap(map, options) {
     for (const n of Object.values(map.nodes)) {
         if (!options.adjusting && !n.discovered) continue;
         const p=points.get(n.id), current=n.id===map.currentLocation;
-        const group=svgNode('g',{transform:`translate(${p.x} ${p.y})`,class:`dm-node${current?' dm-current':''}`,'data-node-id':n.id,role:'button',tabindex:0,'aria-label':`${n.name}${current?'，当前位置':''}，查看地点详情`});
+        const group=svgNode('g',{transform:`translate(${p.x} ${p.y})`,class:`dm-node${current?' dm-current':''}${focus===n.id?' dm-selected':''}${n.type==='waypoint'?' dm-waypoint':''}`,'data-node-id':n.id,role:'button',tabindex:0,'aria-label':`${n.name}${current?'，当前位置':''}，查看地点详情`});
+        group.append(svgNode('title',{},n.name));
+        if (focus===n.id)group.append(svgNode('circle',{r:33,class:'dm-selected-ring'}));
         if (current) group.append(svgNode('circle',{r:28,class:'dm-halo'}));
-        group.append(svgNode('circle',{r:n.type==='waypoint'?7:19,class:'dm-dot'}));
-        if(n.type!=='waypoint') group.append(svgNode('text',{y:5,class:'dm-symbol'},n.type==='sect'?'▲':n.type==='city'?'◆':'●'));
-        group.append(svgNode('text',{y:45,class:'dm-name'},n.name));
+        group.append(svgNode('circle',{r:n.type==='waypoint'?7:n.type==='city'?24:19,class:'dm-dot'}));
+        if(n.type!=='waypoint') group.append(svgNode('text',{y:5,class:'dm-symbol'},nodeGlyph(n.type)));
+        const label=labels.get(n.id);if(!lowDetail||current||focus===n.id||['city','sect'].includes(n.type))group.append(svgNode('text',{x:label.dx,y:label.dy,class:'dm-name'},n.name.length>16?n.name.slice(0,15)+'…':n.name));
+        const childCount=options.childCounts?.[n.id]??0;if(childCount)group.append(svgNode('text',{x:30,y:-20,class:'dm-child-badge'},`▧ ${childCount}`));
         if (current) group.append(svgNode('text',{y:-37,class:'dm-current-label'},'当前位置'));
         group.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onSelect(n.id);}});
         groups.set(n.id,group);nodeLayer.append(group);
     }
     if(isTileMap(map)){
-        const lattice=svgNode('g',{'pointer-events':'none',class:'dm-cell-layer',stroke:'var(--dm-muted)','stroke-opacity':.28,'stroke-width':1,fill:'none'});
+        const lattice=svgNode('g',{'pointer-events':'none',class:'dm-cell-layer',stroke:'var(--dm-muted)','stroke-opacity':.13,'stroke-width':1,fill:'none'});
         const corners=[[-200,-200],[920,-200],[-200,680],[920,680]].map(([x,y])=>pointCell(map.type,{x:(x-camera.x)/camera.zoom,y:(y-camera.y)/camera.zoom}));
         const minQ=Math.min(...corners.map(c=>c.q))-2,maxQ=Math.max(...corners.map(c=>c.q))+2,minR=Math.min(...corners.map(c=>c.r))-2,maxR=Math.max(...corners.map(c=>c.r))+2;
         for(let q=minQ;q<=maxQ;q++)for(let r=minR;r<=maxR;r++){
             const p=cellPoint(map.type,q,r);
             const key=cellKey({q,r}),data=map.metadata.cells?.[key];
-            const attrs={'data-cell-key':key,fill:cellColor(map,data),'fill-opacity':.48};
+            const attrs={'data-cell-key':key,fill:cellColor(map,data),'fill-opacity':.32};
             const shape=map.type==='grid'?svgNode('rect',{...attrs,x:p.x-80,y:p.y-80,width:160,height:160}):svgNode('polygon',{...attrs,points:Array.from({length:6},(_,i)=>{const a=(i*60-30)*Math.PI/180;return `${p.x+CELL_SIZE/Math.sqrt(3)*Math.cos(a)},${p.y+CELL_SIZE/Math.sqrt(3)*Math.sin(a)}`;}).join(' ')});
             cellShapes.set(key,shape);lattice.append(shape);
-            if(data?.name)lattice.append(svgNode('text',{x:p.x,y:p.y-55,'text-anchor':'middle',fill:'var(--dm-text)',stroke:'none','font-size':14},data.name));
+            if(data?.name&&!lowDetail)lattice.append(svgNode('text',{x:p.x,y:p.y-55,'text-anchor':'middle',fill:'var(--dm-text)',stroke:'none','font-size':14},data.name));
             if(options.selectedCells?.includes(key))highlight(key);
+        }
+        const boundaries=new Map(),regions=new Map(),rules=cellRules(map);
+        for(const [key,data] of Object.entries(map.metadata.cells??{})){if(!data.region)continue;const [q,r]=key.split(',').map(Number),p=cellPoint(map.type,q,r),vertices=map.type==='grid'?[[p.x-80,p.y-80],[p.x+80,p.y-80],[p.x+80,p.y+80],[p.x-80,p.y+80]]:Array.from({length:6},(_,i)=>{const a=(i*60-30)*Math.PI/180;return [p.x+CELL_SIZE/Math.sqrt(3)*Math.cos(a),p.y+CELL_SIZE/Math.sqrt(3)*Math.sin(a)];});
+            const ids=[],seen=new Set();let regionId=data.region;while(regionId&&!seen.has(regionId)){seen.add(regionId);ids.push(regionId);regionId=rules.regions.find(r=>r.id===regionId)?.parentId;}for(const regionId of ids){if(!boundaries.has(regionId)){boundaries.set(regionId,new Map());regions.set(regionId,[]);}regions.get(regionId).push(p);const edges=boundaries.get(regionId);
+            for(let i=0;i<vertices.length;i++){const a=vertices[i],b=vertices[(i+1)%vertices.length],code=[a.map(v=>v.toFixed(3)).join(','),b.map(v=>v.toFixed(3)).join(',')].sort().join('|');if(edges.has(code))edges.delete(code);else edges.set(code,[a,b]);}}
+        }
+        for(const [id,edges] of boundaries){const region=rules.regions.find(r=>r.id===id);if(!region||(lowDetail?!!region.parentId:rules.regions.some(r=>r.parentId===id)))continue;const pts=regions.get(id),center={x:pts.reduce((v,p)=>v+p.x,0)/pts.length,y:pts.reduce((v,p)=>v+p.y,0)/pts.length},anchor=pts.reduce((a,b)=>Math.hypot(a.x-center.x,a.y-center.y)<Math.hypot(b.x-center.x,b.y-center.y)?a:b);
+            lattice.append(svgNode('path',{d:[...edges.values()].map(([a,b])=>`M ${a[0]} ${a[1]} L ${b[0]} ${b[1]}`).join(' '),stroke:region.color,'stroke-width':3,'stroke-opacity':.8,fill:'none',class:'dm-region-border'}));lattice.append(svgNode('text',{x:anchor.x,y:anchor.y-62,class:'dm-region-name','text-anchor':'middle'},region.name));
         }
         viewport.append(lattice);
     }
@@ -85,7 +106,8 @@ export function renderMap(map, options) {
     svg.addEventListener('pointerdown',e=>{
         if(!e.isPrimary||e.button!==0)return;
         const id=e.target.closest('[data-node-id]')?.dataset.nodeId;
-        drag={pointer:e.pointerId,id,start:point(e),moved:false,plan:null};
+        const edgeId=e.target.closest('[data-edge-id]')?.dataset.edgeId;
+        drag={pointer:e.pointerId,id,edgeId,start:point(e),moved:false,plan:null};
         if(isTileMap(map)&&options.cellEditing&&options.brushCells){drag.cells=new Set();drag.previous=world(e);addBrush(world(e));}
         svg.setPointerCapture(e.pointerId);
     });
@@ -124,7 +146,7 @@ export function renderMap(map, options) {
             if(ended.id){points.set(ended.id,map.nodes[ended.id].position);const p=points.get(ended.id);groups.get(ended.id).setAttribute('transform',`translate(${p.x} ${p.y})`);paintEdges();}
             viewport.setAttribute('transform',`translate(${camera.x} ${camera.y}) scale(${camera.zoom})`);onHint('拖动已取消');return;
         }
-        if(!ended.moved){if(isTileMap(map)&&(options.cellEditing||!ended.id))options.onCells?.([cellKey(pointCell(map.type,world(e)))],false);else if(ended.id)onSelect(ended.id);return;}
+        if(!ended.moved){if(ended.edgeId&&!ended.id&&options.onEdgeSelect){options.onEdgeSelect(ended.edgeId);return;}if(isTileMap(map)&&(options.cellEditing||!ended.id))options.onCells?.([cellKey(pointCell(map.type,world(e)))],false);else if(ended.id)onSelect(ended.id);return;}
         if(ended.id){if(editable&&ended.plan)onSnap(ended.id,ended.plan);}
         else{const p=point(e);onCamera({...camera,x:camera.x+p.x-ended.start.x,y:camera.y+p.y-ended.start.y});}
     }

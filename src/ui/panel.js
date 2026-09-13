@@ -1,4 +1,5 @@
-import { TOOL_PROMPT, targetWorldbook, syncToolPrompt } from '../adapters/tool-lorebook.js';
+import { mapChanges } from './map-presentation.js';
+import { TOOL_PROMPT, targetWorldbook, syncToolPrompt, inspectToolPrompt } from '../adapters/tool-lorebook.js';
 import { GENERATION_LEVELS, mapPath, mapChoices, locationPath, projectedLocation, generationScope, levelPrompt } from '../core/hierarchy.js';
 import { renderCellEditor, renderCellDetails, renderCellRules } from './cells.js';
 import { cellKey } from '../core/cells.js';
@@ -19,7 +20,7 @@ import { attachFloatingWindow, readWindowPreferences } from './floating.js';
 const el=(tag,text,cls)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;};
 const mapTypes=[{id:'graph',name:'节点连线'},{id:'hex',name:'六边形'},{id:'grid',name:'方格'}];
 const uid=prefix=>`${prefix}_${crypto.randomUUID().replaceAll('-','')}`;
-const button=(text,fn)=>{const e=el('button',text);e.type='button';e.addEventListener('click',fn);return e;};
+const button=(text,fn)=>{const e=el('button',text);e.type='button';if(/^(保存|生成地图草稿|一键写入)/.test(text))e.classList.add('dm-primary');if(/^(删除|断开)/.test(text))e.classList.add('dm-danger');e.addEventListener('click',fn);return e;};
 const input=(value='',type='text')=>{const e=el('input');e.type=type;e.value=value;return e;};
 const select=(items,value)=>{const e=el('select');for(const item of items){const o=el('option',item.name??item.label);o.value=item.id;e.append(o);}e.value=value;return e;};
 const field=(host,name,control)=>{const label=el('label',name);label.append(control);host.append(label);return control;};
@@ -42,7 +43,7 @@ export function createPanel(store,persistence,preferences,options={}){
     function setCollapsed(value){collapsed=value;content.hidden=value;panel.classList.toggle('dm-collapsed',value);toggle.textContent=value?'展开':'收起';toggle.setAttribute('aria-expanded',String(!value));render();floating.keepVisible();floating.save();}
     toggle.addEventListener('click',()=>setCollapsed(!collapsed));
     panel.addEventListener('keydown',e=>{if(e.key==='Escape'){setCollapsed(true);toggle.focus();}});
-    for(const [id,name]of tabs){const b=button(name,()=>{tab=id;camera=null;notice='';render();});b.dataset.tab=id;b.setAttribute('role','tab');panel.querySelector('.dm-tabs').append(b);}
+    for(const [id,name]of tabs){const titles={view:'◉ 查看',edit:'✎ 编辑',rules:'☷ 规则',ai:'✦ AI',templates:'▧ 模板',settings:'⚙ 设置'};const b=button(titles[id],()=>{tab=id;camera=null;notice='';render();});b.setAttribute('aria-label',name);b.title=name;b.dataset.tab=id;b.setAttribute('role','tab');panel.querySelector('.dm-tabs').append(b);}
     function render(){
         if(disposed)return;
         const saved=prepareDocument(store.snapshot()),document=tab==='view'?saved:draft.snapshot();
@@ -54,13 +55,13 @@ export function createPanel(store,persistence,preferences,options={}){
         page.replaceChildren();savebar.replaceChildren();feedback.textContent=notice;
         if(collapsed)return;
         const key=`${persistence.scope()}:${tab}:${map.id}`;if(key!==cameraKey){camera=null;selected=null;unlocked=false;cameraKey=key;selectedCells=[];brushCells=false;}
-        page.append(el('h2',map.name));
+        page.append(el('p','正在浏览 · '+mapPath(document,map.id).map(m=>m.name).join(' / '),'dm-browse-label'),el('h2',map.name));
         if(map.parentMap)page.append(button('返回上级：'+document.maps[map.parentMap].name,()=>navigateMap(map.parentMap)));
         const children=Object.values(document.maps).filter(m=>m.parentMap===map.id);
         for(const child of children)if(tab!=='view')page.append(button('进入：'+child.name,()=>navigateMap(child.id)));
 
-        const pathBar=el('div',undefined,'dm-actions');for(const ancestor of mapPath(document,map.id))pathBar.append(button(ancestor.name,()=>navigateMap(ancestor.id)));page.append(pathBar);
-        page.append(el('p','角色位置：'+locationPath(saved),'dm-help'));
+        const pathBar=el('div',undefined,'dm-actions');for(const ancestor of mapPath(document,map.id))pathBar.append(button(ancestor.name,()=>navigateMap(ancestor.id)));if(mapPath(document,map.id).length>1)page.append(pathBar);
+        page.append(el('p','📍 角色位置：'+locationPath(saved),'dm-role-location'));
         if(Object.keys(document.maps).length>1){const search=field(page,'搜索地图',input(searchTerm)),s=field(page,'地图',select(mapChoices(document),map.id));search.oninput=()=>{searchTerm=search.value;const matches=mapChoices(document).filter(m=>m.name.toLowerCase().includes(searchTerm.toLowerCase()));s.replaceChildren(...select(matches,map.id).children);};s.onchange=()=>navigateMap(s.value);} 
         if(tab==='edit'){
             const name=field(page,'地图名称',input(map.name));page.append(button('应用地图名称',()=>edit(m=>{if(!name.value.trim())throw new Error('地图名称不能为空');m.name=name.value.trim();})));
@@ -71,10 +72,17 @@ export function createPanel(store,persistence,preferences,options={}){
         if(tab==='settings')renderSettings(map);
         if(tab==='ai')renderAI(map);
         if(tab==='templates')renderTemplates();
-        if(tab!=='view'&&tab!=='settings'){
-            const status=draft.status();savebar.append(el('span',status.conflict?'已保存地图发生变化，请放弃草稿后重试':status.dirty?('未保存：'+(status.changedMaps.join('、')||'角色位置')):'未修改'));
-            savebar.append(button('保存全部地图调整',()=>run(()=>{draft.save();notice='地图已保存，查看地图与变量接口现已使用新地图。';render();})),button('放弃草稿',()=>{draft.discard();notice='已放弃未保存调整';camera=null;render();}));
+        if(tab!=='settings'){
+            const status=draft.status();savebar.append(el('span',status.conflict?'已保存地图发生变化，请放弃草稿后重试':status.dirty?('未保存：'+(status.changedMaps.join('、')||'角色位置')):globalThis.SillyTavern?.getContext?.()?.chatMetadata?.dynamicMapV1?'✓ 已保存':'初始地图尚未保存'));savebar.classList.toggle('dm-unsaved',status.dirty);
+            const saveButton=button('保存全部地图调整',()=>run(()=>{draft.save();notice='地图已保存，查看地图与变量接口现已使用新地图。';render();}));saveButton.disabled=status.conflict||(!status.dirty&&!!globalThis.SillyTavern?.getContext?.()?.chatMetadata?.dynamicMapV1);savebar.append(saveButton,button('放弃草稿',()=>{draft.discard();notice='已放弃未保存调整';camera=null;render();}));
+            if(status.dirty&&tab!=='view')renderChanges(saved,draft.snapshot());
         }
+        for(const text of [...page.querySelectorAll('.dm-help')])if(text.textContent.length>180){const fold=el('details',undefined,'dm-help-fold');fold.append(el('summary','使用说明'));text.replaceWith(fold);fold.append(text);}
+    }
+    function renderChanges(before,after){
+        const changes=mapChanges(before,after),box=el('details',undefined,'dm-change-preview');box.append(el('summary',`待保存变更 · ${changes.length} 项`));
+        for(const item of changes){const b=button(item.label,()=>{if(!after.maps[item.mapId]){notice='该地图已删除，可放弃草稿恢复';render();return;}tab='edit';navigateMap(item.mapId);selected=item.nodeId??null;routeId=item.edgeId??'';editorTool=item.edgeId?'route':item.nodeId?'node':'maps';const target=item.nodeId?after.maps[item.mapId].nodes[item.nodeId]:null;if(target)camera={zoom:1.2,x:360-target.position.x*1.2,y:220-target.position.y*1.2};else if(item.edgeId){const m=after.maps[item.mapId],e=m.edges.find(e=>e.id===item.edgeId),a=m.nodes[e.from].position,b=m.nodes[e.to].position,zoom=Math.max(.1,Math.min(1.2,500/(Math.hypot(a.x-b.x,a.y-b.y)+80)));camera={zoom,x:360-(a.x+b.x)/2*zoom,y:220-(a.y+b.y)/2*zoom};}render();});b.className='dm-change-item';box.append(b);}
+        page.append(box);
     }
     function navigateMap(id){browsedMap=id;selected=null;camera=null;searchTerm='';navigationRevision++;render();}
     function renderCanvas(map){
@@ -83,23 +91,24 @@ export function createPanel(store,persistence,preferences,options={}){
         if(tab==='edit'){const b=button(`${unlocked?'✓ ':''}允许拖动地点`,()=>{unlocked=!unlocked;render();});b.setAttribute('aria-pressed',String(unlocked));b.disabled=!persistence.scope();if(b.disabled)b.title='请先打开角色卡的聊天';controls.append(b);}
         if(tab==='edit'&&isTileMap(map)&&editorTool==='cells'){const brush=button(`${brushCells?'✓ ':''}刷选格子`,()=>{brushCells=!brushCells;render();});brush.setAttribute('aria-pressed',String(brushCells));controls.append(brush,button('清空格子选择',()=>{selectedCells=[];render();}));}
         page.append(controls);
-        const canvas=el('div',undefined,'dm-canvas');page.append(canvas);
+        const stage=el('div',undefined,'dm-map-stage'),canvas=el('div',undefined,'dm-canvas');stage.append(canvas);page.append(stage);
         const hint=el('p',notice,'dm-drag-hint');hint.setAttribute('role','status');page.append(hint);
         camera??=fitCamera(map,tab==='edit');
         const displayDoc=tab==='view'?prepareDocument(store.snapshot()):draft.snapshot();const displayMap={...map,currentLocation:projectedLocation(displayDoc,map.id)};
-        canvas.append(renderMap(displayMap,{camera,cellEditing:tab==='edit'&&editorTool==='cells',brushCells,selectedCells,onCells:(keys,append)=>{selected=null;selectedCells=append?[...new Set([...selectedCells,...keys])]:keys;render();},adjusting:tab==='edit',editable:tab==='edit'&&unlocked&&editorTool!=='cells',onSelect:id=>{selectedCells=[];selected=id;render();},onCamera:value=>{camera=value;render();},onSnap:(id,plan)=>edit(m=>{if(isTileMap(m))applyTilePlacement(m,id,plan);else applyPlacement(m,id,plan,uid('edge'));notice='已调整草稿；保存地图后生效';}),onHint:text=>{hint.textContent=text;}}));
+        const childCounts={};for(const child of Object.values(displayDoc.maps))if(child.parentMap===map.id&&child.metadata.parentNode)childCounts[child.metadata.parentNode]=(childCounts[child.metadata.parentNode]??0)+1;
+        canvas.append(renderMap(displayMap,{camera,selected,selectedEdge:routeId,childCounts,onEdgeSelect:tab==='edit'?id=>{routeId=id;selected=null;editorTool='route';render();}:undefined,cellEditing:tab==='edit'&&editorTool==='cells',brushCells,selectedCells,onCells:(keys,append)=>{selected=null;selectedCells=append?[...new Set([...selectedCells,...keys])]:keys;render();},adjusting:tab==='edit',editable:tab==='edit'&&unlocked&&editorTool!=='cells',onSelect:id=>{selectedCells=[];selected=id;routeId='';if(tab==='edit')editorTool='node';render();},onCamera:value=>{camera=value;render();},onSnap:(id,plan)=>edit(m=>{if(isTileMap(m))applyTilePlacement(m,id,plan);else applyPlacement(m,id,plan,uid('edge'));notice='已调整草稿；保存地图后生效';}),onHint:text=>{hint.textContent=text;}}));
         page.append(el('p',`${isTileMap(map)?(map.type==='hex'?'六边形格子':'方格') :map.metadata.layout?.mode==='auto'?'自动布局，图上线长不代表距离':'等长方位布局'} · 距离以道路资料为准 · 拖动空白平移 · 滚轮缩放`,'dm-help'));
         if(tab==='edit'){if(map.nodes[selected])page.append(el('p',"已选中："+map.nodes[selected].name,'dm-help'));return;}
-        const node=map.nodes[selected],details=el('div',undefined,'dm-details');page.append(details);
+        const node=map.nodes[selected],card=el('details',undefined,'dm-detail-card');card.open=true;card.append(el('summary',node?.name??'地点说明'));const details=el('div',undefined,'dm-details');card.append(details);stage.append(card);
         if(isTileMap(map)&&selectedCells.length){renderCellDetails(details,map,selectedCells[0],kit);return;}
         if(!node||(!node.discovered&&tab==='view')){details.textContent='点击地点或途经点查看说明与相邻路线。';return;}
-        details.append(el('h3',node.name),el('p',node.description||'暂无说明'));
+        details.append(el('p',map.metadata.nodeTypes.find(t=>t.id===node.type)?.name??node.type,'dm-type-chip'),el('p',node.description||'暂无说明'));
         for(const child of Object.values(displayDoc.maps).filter(m=>m.parentMap===map.id&&m.metadata.parentNode===node.id))details.append(button('进入内部地图：'+child.name,()=>navigateMap(child.id)));
         const methods=map.metadata.rules.methods;if(!methods.some(m=>m.id===method))method=methods[0].id;
         const travel=select(methods,method);field(details,'通行方式',travel);travel.onchange=()=>{method=travel.value;render();};
         const links=connectionDetails(map,node.id,method);
         if(!links.length)details.append(el('p','暂无已发现的相邻路线'));
-        for(const link of links){const line=el('p');line.append(button(link.node.name,()=>{selected=link.node.id;render();}),document.createTextNode(` · ${link.direction.label} · ${link.distance===null?'距离未设置':link.distance+' '+link.unit}${roadName(map,link.edge)?' · '+roadName(map,link.edge):''} · ${map.metadata.roadTypes.find(t=>t.id===link.edge.type)?.name||link.edge.type} · ${link.edge.bidirectional?'双向':link.accessible?'单向出发':'单向到达，不能沿此路出发'} · ${link.minutes===null?'时间无法估算':link.method+'约 '+Number(link.minutes.toFixed(1))+' 分钟'}`));details.append(line);}
+        for(const link of links){const line=el('p',undefined,'dm-connection-row');line.append(button(link.node.name,()=>{selected=link.node.id;render();}),document.createTextNode(` · ${link.direction.label} · ${link.distance===null?'距离未设置':link.distance+' '+link.unit}${roadName(map,link.edge)?' · '+roadName(map,link.edge):''} · ${map.metadata.roadTypes.find(t=>t.id===link.edge.type)?.name||link.edge.type} · ${link.edge.bidirectional?'双向':link.accessible?'单向出发':'单向到达，不能沿此路出发'} · ${link.minutes===null?'时间无法估算':link.method+'约 '+Number(link.minutes.toFixed(1))+' 分钟'}`));details.append(line);}
     }
     function switches(host,items,current,change){
         const bar=el('div',undefined,'dm-actions');for(const [id,name]of items){const b=button(name,()=>{change(id);render();});b.setAttribute('aria-pressed',String(id===current));bar.append(b);}host.append(bar);
@@ -208,9 +217,11 @@ export function createPanel(store,persistence,preferences,options={}){
             const getContext=()=>globalThis.SillyTavern?.getContext?.()??{};
             let target;try{target=targetWorldbook(getContext());}catch(e){target=e.message;}
             form.append(el('p','目标：'+target+'。共享同一本世界书的角色会共用此条目。','dm-help'));
-            const feedback=el('p','只管理插件写入的工具提示词，手动复制的条目不会删除。');form.append(feedback);
-            const apply=async remove=>{write.disabled=erase.disabled=true;feedback.textContent=remove?'正在删除提示词…':'正在写入提示词…';try{const result=await syncToolPrompt({getContext,remove});feedback.textContent=result.name+'：'+result.message;}catch(e){feedback.textContent=e.message;}finally{write.disabled=erase.disabled=false;}};
+            const feedback=el('p','正在检查世界书提示词状态…');let promptBusy=false;form.append(feedback);
+            const apply=async remove=>{promptBusy=true;write.disabled=erase.disabled=true;feedback.textContent=remove?'正在删除提示词…':'正在写入提示词…';try{const result=await syncToolPrompt({getContext,remove});feedback.textContent=result.name+'：'+result.message;}catch(e){feedback.textContent=e.message;}finally{promptBusy=false;write.disabled=false;void inspect(false);}};
             const write=button('一键写入世界书',()=>void apply(false)),erase=button('删除已写入提示词',()=>void apply(true));form.append(write,erase);
+            async function inspect(show=true){try{const info=await inspectToolPrompt({getContext});if(promptBusy)return;write.textContent=info.exists?'更新提示词':'一键写入世界书';write.setAttribute('aria-label','一键写入世界书');erase.disabled=!info.exists;if(show)feedback.textContent=info.name+'：'+info.message;}catch(e){if(show&&!promptBusy)feedback.textContent=e.message;erase.disabled=true;}}
+            erase.disabled=true;form.append(button('检查世界书状态',()=>void inspect()));void inspect();
 
         }
         form=sections.get('api');form.append(el('h3','地图生成 API'));
